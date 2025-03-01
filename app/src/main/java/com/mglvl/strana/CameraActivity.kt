@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -51,7 +52,6 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.mglvl.strana.ui.theme.StranaTheme
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -107,25 +107,35 @@ class CameraActivity : ComponentActivity() {
 
 @Composable
 fun CameraScreen(modifier: Modifier = Modifier) {
+    // Shared state for recognized words
+    var recognizedWords by remember { mutableStateOf<List<String>>(emptyList()) }
+    
     Column(modifier = modifier.fillMaxSize()) {
         // Camera preview takes up the top 75%
         CameraPreview(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.75f)
+                .weight(0.75f),
+            onWordsRecognized = { words ->
+                recognizedWords = words
+            }
         )
 
         // Words and definitions area takes up the bottom 40%
         WordsAndDefinitionsArea(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(0.4f)
+                .weight(0.4f),
+            recognizedWords = recognizedWords
         )
     }
 }
 
 @Composable
-fun CameraPreview(modifier: Modifier = Modifier) {
+fun CameraPreview(
+    modifier: Modifier = Modifier,
+    onWordsRecognized: (List<String>) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = remember { CoroutineScope(Dispatchers.Main) }
@@ -152,15 +162,22 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                                     )
                                     recognizer.process(inputImage)
                                         .addOnSuccessListener { result ->
-                                            var words = result.text.split(Regex("[^\\p{L}']+"))
+                                            val words = result.text.split(Regex("[^\\p{L}']+"))
                                                 .filter { w ->
                                                     w.isNotEmpty()
                                                 }
+                                                .map { w ->
+                                                    // normalize
+                                                    w.lowercase()
+                                                }
+                                            
+                                            // Pass the recognized words to the callback
+                                            onWordsRecognized(words)
+                                            
                                             words.forEach { w ->
                                                 Log.d("CameraActivity", "word : '${w}'")
                                             }
                                         }
-
                                 }
 
                                 // Close the image to release resources
@@ -224,27 +241,38 @@ data class WordDefinition(
     val definition: String
 )
 
+// Configuration for what makes a word "strange"
+object StrangeWordConfig {
+    // Minimum length for a word to be considered strange
+    const val MIN_LENGTH = 10
+    
+    // Function to determine if a word is strange based on current config
+    fun isStrange(word: String): Boolean {
+        return word.length >= MIN_LENGTH
+    }
+}
+
 @Composable
-fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
+fun WordsAndDefinitionsArea(
+    modifier: Modifier = Modifier,
+    recognizedWords: List<String>
+) {
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.background
     ) {
-        // Sample words and definitions
-        val wordsAndDefinitions = remember {
-            listOf(
-                WordDefinition("Ephemeral", "Lasting for a very short time."),
-                WordDefinition(
-                    "Serendipity",
-                    "The occurrence and development of events by chance in a happy or beneficial way."
-                ),
-                WordDefinition("Ubiquitous", "Present, appearing, or found everywhere."),
-                WordDefinition("Mellifluous", "Sweet or musical; pleasant to hear."),
-                WordDefinition(
-                    "Quintessential",
-                    "Representing the most perfect or typical example of a quality or class."
-                )
-            )
+        // Filter for strange words based on our configuration
+        val strangeWords = remember(recognizedWords) {
+            recognizedWords
+                .filter { StrangeWordConfig.isStrange(it) }
+                .distinct()
+                .map { word ->
+                    // For now, we'll use a placeholder definition
+                    WordDefinition(
+                        word = word,
+                        definition = "A word with ${word.length} characters."
+                    )
+                }
         }
 
         val scrollState = rememberScrollState()
@@ -256,7 +284,7 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
         ) {
             // Header text showing number of words found
             Text(
-                text = "I found ${wordsAndDefinitions.size} unusual words!",
+                text = stringResource(R.string.found_words, strangeWords.size),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -271,7 +299,7 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
                     .fillMaxWidth()
                     .verticalScroll(scrollState)
             ) {
-                wordsAndDefinitions.forEach { wordDef ->
+                strangeWords.forEach { wordDef ->
                     WordDefinitionCard(wordDef)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -292,7 +320,7 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Scroll down for more words",
+                        text = stringResource(R.string.scroll_for_more),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
