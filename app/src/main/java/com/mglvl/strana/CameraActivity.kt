@@ -170,9 +170,11 @@ fun CameraPreview(
                                                     // normalize
                                                     w.lowercase()
                                                 }
-                                            
-                                            // Pass the recognized words to the callback
-                                            onWordsRecognized(words)
+
+                                            if (words.isNotEmpty()) {
+                                                // Pass the recognized words to the callback
+                                                onWordsRecognized(words)
+                                            }
                                             
                                             words.forEach { w ->
                                                 Log.d("CameraActivity", "word : '${w}'")
