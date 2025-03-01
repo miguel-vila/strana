@@ -113,14 +113,26 @@ class DictionaryApiClient {
                         callback(null)
                     }
                 } else {
-                    // 404 or other error
-                    callback(null)
+                    // 404 or other error - return WordDefinition with null definition
+                    callback(
+                        WordDefinition(
+                            word = word,
+                            partOfSpeech = null,
+                            definition = null
+                        )
+                    )
                 }
             }
 
             override fun onFailure(call: Call<List<DictionaryEntry>>, t: Throwable) {
-                // Network error or other failure
-                callback(null)
+                // Network error or other failure - return WordDefinition with null definition
+                callback(
+                    WordDefinition(
+                        word = word,
+                        partOfSpeech = null,
+                        definition = null
+                    )
+                )
             }
         })
     }

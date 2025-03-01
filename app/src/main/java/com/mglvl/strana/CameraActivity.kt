@@ -40,8 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -451,6 +453,13 @@ fun WordDefinitionCard(
                         strokeWidth = 2.dp
                     )
                 }
+            } else if (definition.definition == null) {
+                // Show error message in red when definition is not found (404)
+                Text(
+                    text = "Meaning couldn't be found",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colorResource(id = R.color.red)
+                )
             } else {
                 // Show part of speech if available
                 definition.partOfSpeech?.let { pos ->
@@ -463,9 +472,9 @@ fun WordDefinitionCard(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
                 
-                // Show definition or fallback message
+                // Show definition
                 Text(
-                    text = definition.definition ?: "No definition found",
+                    text = definition.definition,
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
