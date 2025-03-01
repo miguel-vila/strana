@@ -3,11 +3,15 @@ package com.mglvl.strana
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -23,6 +27,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +41,17 @@ import androidx.core.content.ContextCompat
 import com.mglvl.strana.ui.theme.StranaTheme
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
+    private var imageCapturingJob: Job? = null
     
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -77,6 +90,7 @@ class CameraActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
+        imageCapturingJob?.cancel()
         cameraExecutor.shutdown()
     }
 }
@@ -104,6 +118,46 @@ fun CameraScreen(modifier: Modifier = Modifier) {
 fun CameraPreview(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = remember { CoroutineScope(Dispatchers.Main) }
+    var imageCapture: ImageCapture? = remember { null }
+    
+    DisposableEffect(lifecycleOwner) {
+        val job = coroutineScope.launch {
+            while (isActive) {
+                delay(5000) // 5 seconds
+                imageCapture?.let { capture ->
+                    capture.takePicture(
+                        ContextCompat.getMainExecutor(context),
+                        object : ImageCapture.OnImageCapturedCallback() {
+                            override fun onCaptureSuccess(image: ImageProxy) {
+                                // Here you have access to the image bytes
+                                // You can process the image here
+                                val buffer = image.planes[0].buffer
+                                val bytes = ByteArray(buffer.remaining())
+                                buffer.get(bytes)
+                                
+                                // Log the size of the captured image
+                                Log.d("CameraActivity", "Image captured: ${bytes.size} bytes")
+                                
+                                // TODO: Do something with the bytes
+                                
+                                // Close the image to release resources
+                                image.close()
+                            }
+                            
+                            override fun onError(exception: ImageCaptureException) {
+                                Log.e("CameraActivity", "Image capture failed", exception)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        
+        onDispose {
+            job.cancel()
+        }
+    }
     
     AndroidView(
         modifier = modifier,
@@ -118,6 +172,10 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
                 
+                // Set up the image capture use case
+                imageCapture = ImageCapture.Builder()
+                    .build()
+                
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                 
                 try {
@@ -125,10 +183,11 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                     cameraProvider.bindToLifecycle(
                         lifecycleOwner,
                         cameraSelector,
-                        preview
+                        preview,
+                        imageCapture
                     )
                 } catch (e: Exception) {
-                    // Handle error
+                    Log.e("CameraActivity", "Use case binding failed", e)
                 }
             }, ContextCompat.getMainExecutor(ctx))
             
