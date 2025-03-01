@@ -168,6 +168,10 @@ fun CameraPreview(
     // State to track if scanning is in progress
     var isScanning by remember { mutableStateOf(false) }
 
+    val props = Properties()
+    props.setProperty("annotators", "tokenize,pos")
+    val pipeline = StanfordCoreNLP(props)
+
     Box(modifier = modifier) {
         // Camera preview
         AndroidView(
@@ -231,19 +235,19 @@ fun CameraPreview(
                                         )
                                         recognizer.process(inputImage)
                                             .addOnSuccessListener { result ->
-                                                val props = Properties()
-                                                props.setProperty("annotators", "tokenize,pos")
-                                                val pipeline = StanfordCoreNLP(props)
                                                 val document = pipeline.processToCoreDocument(result.text)
                                                 val words = document.tokens().map { token ->
                                                     Word(token.word(), token.tag())
+                                                }.filter {
+                                                        w: Word -> !setOf("NNP", "NNPS", ",", ".", "HYPH", "``", "''", ":", "RRB-" , "LRB-").contains(w.posTag)
                                                 }
                                                 if (words.isNotEmpty()) {
                                                     // Pass the recognized words to the callback
                                                     onWordsRecognized(words)
                                                 }
 
-                                                words.forEach { w ->
+                                                words
+                                                    .forEach { w ->
                                                     Log.d("CameraActivity", "word : '${w}'")
                                                 }
 
