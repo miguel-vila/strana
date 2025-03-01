@@ -45,6 +45,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.mglvl.strana.ui.theme.StranaTheme
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -59,7 +62,7 @@ import kotlinx.coroutines.launch
 class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapturingJob: Job? = null
-    
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -70,11 +73,11 @@ class CameraActivity : ComponentActivity() {
             finish()
         }
     }
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         // Request camera permission if not granted
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -83,9 +86,9 @@ class CameraActivity : ComponentActivity() {
         ) {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
-        
+
         cameraExecutor = Executors.newSingleThreadExecutor()
-        
+
         setContent {
             StranaTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -94,7 +97,7 @@ class CameraActivity : ComponentActivity() {
             }
         }
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
         imageCapturingJob?.cancel()
@@ -111,7 +114,7 @@ fun CameraScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .weight(0.75f)
         )
-        
+
         // Words and definitions area takes up the bottom 40%
         WordsAndDefinitionsArea(
             modifier = Modifier
@@ -127,7 +130,8 @@ fun CameraPreview(modifier: Modifier = Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = remember { CoroutineScope(Dispatchers.Main) }
     var imageCapture: ImageCapture? = remember { null }
-    
+    var recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
     DisposableEffect(lifecycleOwner) {
         val job = coroutineScope.launch {
             while (isActive) {
@@ -136,22 +140,33 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                     capture.takePicture(
                         ContextCompat.getMainExecutor(context),
                         object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(image: ImageProxy) {
-                                // Here you have access to the image bytes
-                                // You can process the image here
-                                val buffer = image.planes[0].buffer
-                                val bytes = ByteArray(buffer.remaining())
-                                buffer.get(bytes)
-                                
+                            override fun onCaptureSuccess(imageProxy: ImageProxy) {
                                 // Log the size of the captured image
-                                Log.d("CameraActivity", "Image captured: ${bytes.size} bytes")
-                                
-                                // TODO: Do something with the bytes
-                                
+                                Log.d("CameraActivity", "Image captured")
+
+                                var image = imageProxy.image
+                                if (image != null) {
+                                    var inputImage = InputImage.fromMediaImage(
+                                        image,
+                                        imageProxy.imageInfo.rotationDegrees
+                                    )
+                                    recognizer.process(inputImage)
+                                        .addOnSuccessListener { result ->
+                                            var words = result.text.split(Regex("[^\\p{L}']+"))
+                                                .filter { w ->
+                                                    w.isNotEmpty()
+                                                }
+                                            words.forEach { w ->
+                                                Log.d("CameraActivity", "word : '${w}'")
+                                            }
+                                        }
+
+                                }
+
                                 // Close the image to release resources
-                                image.close()
+                                imageProxy.close()
                             }
-                            
+
                             override fun onError(exception: ImageCaptureException) {
                                 Log.e("CameraActivity", "Image capture failed", exception)
                             }
@@ -160,31 +175,31 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                 }
             }
         }
-        
+
         onDispose {
             job.cancel()
         }
     }
-    
+
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
             val previewView = PreviewView(ctx)
             val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-            
+
             cameraProviderFuture.addListener({
                 val cameraProvider = cameraProviderFuture.get()
-                
+
                 val preview = Preview.Builder().build().also {
                     it.setSurfaceProvider(previewView.surfaceProvider)
                 }
-                
+
                 // Set up the image capture use case
                 imageCapture = ImageCapture.Builder()
                     .build()
-                
+
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-                
+
                 try {
                     cameraProvider.unbindAll()
                     cameraProvider.bindToLifecycle(
@@ -197,7 +212,7 @@ fun CameraPreview(modifier: Modifier = Modifier) {
                     Log.e("CameraActivity", "Use case binding failed", e)
                 }
             }, ContextCompat.getMainExecutor(ctx))
-            
+
             previewView
         }
     )
@@ -219,15 +234,21 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
         val wordsAndDefinitions = remember {
             listOf(
                 WordDefinition("Ephemeral", "Lasting for a very short time."),
-                WordDefinition("Serendipity", "The occurrence and development of events by chance in a happy or beneficial way."),
+                WordDefinition(
+                    "Serendipity",
+                    "The occurrence and development of events by chance in a happy or beneficial way."
+                ),
                 WordDefinition("Ubiquitous", "Present, appearing, or found everywhere."),
                 WordDefinition("Mellifluous", "Sweet or musical; pleasant to hear."),
-                WordDefinition("Quintessential", "Representing the most perfect or typical example of a quality or class.")
+                WordDefinition(
+                    "Quintessential",
+                    "Representing the most perfect or typical example of a quality or class."
+                )
             )
         }
-        
+
         val scrollState = rememberScrollState()
-        
+
         Column(
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -243,7 +264,7 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
                     .fillMaxWidth()
                     .padding(bottom = 8.dp)
             )
-            
+
             // Scrollable content with words and definitions
             Column(
                 modifier = Modifier
@@ -254,11 +275,11 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
                     WordDefinitionCard(wordDef)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
-                
+
                 // Add extra space at the bottom to make scrolling more obvious
                 Spacer(modifier = Modifier.height(16.dp))
             }
-            
+
             // Visual indicator that there's more content to scroll
             if (!scrollState.canScrollForward && scrollState.value > 0) {
                 // We're at the bottom
