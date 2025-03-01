@@ -10,6 +10,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import edu.stanford.nlp.ling.*
+import edu.stanford.nlp.pipeline.*
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -62,6 +64,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.util.Properties
 
 class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -122,7 +125,7 @@ fun CameraScreen(
     dictionaryApiClient: DictionaryApiClient
 ) {
     // Shared state for recognized words
-    var recognizedWords by remember { mutableStateOf<List<String>>(emptyList()) }
+    var recognizedWords by remember { mutableStateOf<List<Word>>(emptyList()) }
     
     Column(modifier = modifier.fillMaxSize()) {
         // Camera preview takes up the top 75%
@@ -146,10 +149,12 @@ fun CameraScreen(
     }
 }
 
+data class Word(val word: String, val posTag: String)
+
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
-    onWordsRecognized: (List<String>) -> Unit
+    onWordsRecognized: (List<Word>) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -226,24 +231,22 @@ fun CameraPreview(
                                         )
                                         recognizer.process(inputImage)
                                             .addOnSuccessListener { result ->
-                                                val words = result.text.split(Regex("[^\\p{L}']+"))
-                                                    .filter { w ->
-                                                        w.isNotEmpty()
-                                                    }
-                                                    .map { w ->
-                                                        // normalize
-                                                        w.lowercase()
-                                                    }
-
+                                                val props = Properties()
+                                                props.setProperty("annotators", "tokenize,pos")
+                                                val pipeline = StanfordCoreNLP(props)
+                                                val document = pipeline.processToCoreDocument(result.text)
+                                                val words = document.tokens().map { token ->
+                                                    Word(token.word(), token.tag())
+                                                }
                                                 if (words.isNotEmpty()) {
                                                     // Pass the recognized words to the callback
                                                     onWordsRecognized(words)
                                                 }
-                                                
+
                                                 words.forEach { w ->
                                                     Log.d("CameraActivity", "word : '${w}'")
                                                 }
-                                                
+
                                                 isScanning = false
                                             }
                                             .addOnFailureListener { e ->
@@ -330,7 +333,7 @@ object StrangeWordConfig {
 @Composable
 fun WordsAndDefinitionsArea(
     modifier: Modifier = Modifier,
-    recognizedWords: List<String>,
+    recognizedWords: List<Word>,
     dictionaryApiClient: DictionaryApiClient
 ) {
     val STRANGE_WORDS_LIMIT = 15
@@ -341,7 +344,7 @@ fun WordsAndDefinitionsArea(
         // Filter for strange words based on our configuration
         val strangeWords = remember(recognizedWords) {
             recognizedWords
-                .filter { StrangeWordConfig.isStrange(it) }
+                .filter { StrangeWordConfig.isStrange(it.word) }
                 .take(STRANGE_WORDS_LIMIT)
                 .distinct()
         }
@@ -352,13 +355,13 @@ fun WordsAndDefinitionsArea(
         // Fetch definitions for strange words
         DisposableEffect(strangeWords) {
             strangeWords.forEach { word ->
-                if (!wordDefinitions.containsKey(word)) {
+                if (!wordDefinitions.containsKey(word.word)) {
                     // Set loading state
-                    wordDefinitions = wordDefinitions + (word to null)
+                    wordDefinitions = wordDefinitions + (word.word to null)
                     
                     // Fetch definition
-                    dictionaryApiClient.getDefinition(word) { definition ->
-                        wordDefinitions = wordDefinitions + (word to definition)
+                    dictionaryApiClient.getDefinition(word.word) { definition ->
+                        wordDefinitions = wordDefinitions + (word.word to definition)
                     }
                 }
             }
@@ -391,8 +394,8 @@ fun WordsAndDefinitionsArea(
                     .verticalScroll(scrollState)
             ) {
                 strangeWords.forEach { word ->
-                    val definition = wordDefinitions[word]
-                    WordDefinitionCard(word, definition)
+                    val definition = wordDefinitions[word.word]
+                    WordDefinitionCard(word.word, definition)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 

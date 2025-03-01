@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.mglvl.strana"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -76,7 +76,12 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("ru.gildor.coroutines:kotlin-coroutines-retrofit:1.1.0")
     implementation("com.google.code.gson:gson:2.10.1")
-    
+
+    // CoreNLP
+    implementation("edu.stanford.nlp:stanford-corenlp:4.5.8")
+    implementation("edu.stanford.nlp:stanford-corenlp:1.0.4:models")
+
+
     // Testing dependencies
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
