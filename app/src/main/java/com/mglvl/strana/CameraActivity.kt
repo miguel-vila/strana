@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,8 +59,6 @@ import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class CameraActivity : ComponentActivity() {
@@ -152,109 +151,143 @@ fun CameraPreview(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val coroutineScope = remember { CoroutineScope(Dispatchers.Main) }
-    var imageCapture: ImageCapture? = remember { null }
-    var recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    
+    // Create a remembered ImageCapture instance that persists across recompositions
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    
+    // Create the text recognizer
+    val recognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    
+    // State to track if scanning is in progress
+    var isScanning by remember { mutableStateOf(false) }
 
-    DisposableEffect(lifecycleOwner) {
-        val job = coroutineScope.launch {
-            while (isActive) {
-                delay(5000) // 5 seconds
-                imageCapture?.let { capture ->
-                    capture.takePicture(
-                        ContextCompat.getMainExecutor(context),
-                        object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                                // Log the size of the captured image
-                                Log.d("CameraActivity", "Image captured")
+    Box(modifier = modifier) {
+        // Camera preview
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                val previewView = PreviewView(ctx)
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
-                                var image = imageProxy.image
-                                if (image != null) {
-                                    var inputImage = InputImage.fromMediaImage(
-                                        image,
-                                        imageProxy.imageInfo.rotationDegrees
-                                    )
-                                    recognizer.process(inputImage)
-                                        .addOnSuccessListener { result ->
-                                            val words = result.text.split(Regex("[^\\p{L}']+"))
-                                                .filter { w ->
-                                                    w.isNotEmpty()
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+
+                    // Set up the image capture use case
+                    val newImageCapture = ImageCapture.Builder().build()
+                    imageCapture = newImageCapture
+
+                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            preview,
+                            newImageCapture
+                        )
+                    } catch (e: Exception) {
+                        Log.e("CameraActivity", "Use case binding failed", e)
+                    }
+                }, ContextCompat.getMainExecutor(ctx))
+
+                previewView
+            }
+        )
+        
+        // Scan button in the center of the screen
+        Button(
+            onClick = {
+                Log.d("CameraActivity", "Scan button clicked, isScanning: $isScanning")
+                if (!isScanning) {
+                    isScanning = true
+                    
+                    val currentImageCapture = imageCapture
+                    Log.d("CameraActivity", "imageCapture: ${currentImageCapture != null}")
+                    
+                    if (currentImageCapture != null) {
+                        currentImageCapture.takePicture(
+                            ContextCompat.getMainExecutor(context),
+                            object : ImageCapture.OnImageCapturedCallback() {
+                                override fun onCaptureSuccess(imageProxy: ImageProxy) {
+                                    Log.d("CameraActivity", "Image captured successfully")
+
+                                    val image = imageProxy.image
+                                    if (image != null) {
+                                        val inputImage = InputImage.fromMediaImage(
+                                            image,
+                                            imageProxy.imageInfo.rotationDegrees
+                                        )
+                                        recognizer.process(inputImage)
+                                            .addOnSuccessListener { result ->
+                                                val words = result.text.split(Regex("[^\\p{L}']+"))
+                                                    .filter { w ->
+                                                        w.isNotEmpty()
+                                                    }
+                                                    .map { w ->
+                                                        // normalize
+                                                        w.lowercase()
+                                                    }
+
+                                                if (words.isNotEmpty()) {
+                                                    // Pass the recognized words to the callback
+                                                    onWordsRecognized(words)
                                                 }
-                                                .map { w ->
-                                                    // normalize
-                                                    w.lowercase()
+                                                
+                                                words.forEach { w ->
+                                                    Log.d("CameraActivity", "word : '${w}'")
                                                 }
+                                                
+                                                isScanning = false
+                                            }
+                                            .addOnFailureListener { e ->
+                                                Log.e("CameraActivity", "Text recognition failed", e)
+                                                isScanning = false
+                                            }
+                                    } else {
+                                        Log.e("CameraActivity", "Image is null")
+                                        isScanning = false
+                                    }
 
-                                            if (words.isNotEmpty()) {
-                                                // Pass the recognized words to the callback
-                                                onWordsRecognized(words)
-                                            }
-                                            
-                                            words.forEach { w ->
-                                                Log.d("CameraActivity", "word : '${w}'")
-                                            }
-                                        }
+                                    // Close the image to release resources
+                                    imageProxy.close()
                                 }
 
-                                // Close the image to release resources
-                                imageProxy.close()
+                                override fun onError(exception: ImageCaptureException) {
+                                    Log.e("CameraActivity", "Image capture failed", exception)
+                                    isScanning = false
+                                }
                             }
-
-                            override fun onError(exception: ImageCaptureException) {
-                                Log.e("CameraActivity", "Image capture failed", exception)
-                            }
-                        }
-                    )
+                        )
+                    } else {
+                        Log.e("CameraActivity", "ImageCapture is null, cannot take picture")
+                        isScanning = false
+                    }
                 }
+            },
+            modifier = Modifier.align(Alignment.Center),
+            enabled = !isScanning
+        ) {
+            if (isScanning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.padding(4.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Text(text = stringResource(R.string.scan_button))
             }
         }
-
-        onDispose {
-            job.cancel()
-        }
     }
-
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            val previewView = PreviewView(ctx)
-            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
-            cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
-
-                val preview = Preview.Builder().build().also {
-                    it.setSurfaceProvider(previewView.surfaceProvider)
-                }
-
-                // Set up the image capture use case
-                imageCapture = ImageCapture.Builder()
-                    .build()
-
-                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
-                try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
-                        lifecycleOwner,
-                        cameraSelector,
-                        preview,
-                        imageCapture
-                    )
-                } catch (e: Exception) {
-                    Log.e("CameraActivity", "Use case binding failed", e)
-                }
-            }, ContextCompat.getMainExecutor(ctx))
-
-            previewView
-        }
-    )
 }
 
 // Configuration for what makes a word "strange"
 object StrangeWordConfig {
     private val commonWords = mutableSetOf<String>()
-    private const val TOP_WORDS_COUNT = 25000
+    private const val TOP_WORDS_COUNT = 35000
     private var isInitialized = false
 
     fun initialize(context: android.content.Context) {

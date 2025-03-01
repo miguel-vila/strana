@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">strana</string>
     <string name="capture_button">Capture</string>
+    <string name="scan_button">Scan</string>
     <string name="found_words">I found %1$d unusual words!</string>
     <string name="scroll_for_more">Scroll down for more words</string>
 </resources>
