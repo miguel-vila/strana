@@ -287,7 +287,7 @@ fun CameraPreview(
 // Configuration for what makes a word "strange"
 object StrangeWordConfig {
     private val commonWords = mutableSetOf<String>()
-    private const val TOP_WORDS_COUNT = 35000
+    private const val TOP_WORDS_COUNT = 40_000
     private var isInitialized = false
 
     fun initialize(context: android.content.Context) {
@@ -301,7 +301,8 @@ object StrangeWordConfig {
             reader.useLines { lines ->
                 lines.forEach { line ->
                     if (count < TOP_WORDS_COUNT) {
-                        commonWords.add(line.trim().lowercase())
+                        val word = line.split(" ").get(0).trim().lowercase()
+                        commonWords.add(word)
                         count++
                     } else {
                         return@forEach
