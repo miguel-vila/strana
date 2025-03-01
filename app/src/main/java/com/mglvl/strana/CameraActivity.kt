@@ -17,15 +17,19 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -35,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -105,8 +110,8 @@ fun CameraScreen(modifier: Modifier = Modifier) {
                 .height(300.dp)
         )
         
-        // Text area takes up the bottom half
-        TextInputArea(
+        // Words and definitions area takes up the bottom half
+        WordsAndDefinitionsArea(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -196,20 +201,58 @@ fun CameraPreview(modifier: Modifier = Modifier) {
     )
 }
 
+// Data class to hold word and definition pairs
+data class WordDefinition(
+    val word: String,
+    val definition: String
+)
+
 @Composable
-fun TextInputArea(modifier: Modifier = Modifier) {
+fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.background
     ) {
-        var text by remember { mutableStateOf("") }
+        // Sample words and definitions
+        val wordsAndDefinitions = remember {
+            listOf(
+                WordDefinition("Ephemeral", "Lasting for a very short time."),
+                WordDefinition("Serendipity", "The occurrence and development of events by chance in a happy or beneficial way."),
+                WordDefinition("Ubiquitous", "Present, appearing, or found everywhere."),
+                WordDefinition("Mellifluous", "Sweet or musical; pleasant to hear."),
+                WordDefinition("Quintessential", "Representing the most perfect or typical example of a quality or class.")
+            )
+        }
         
-        Box(modifier = Modifier.padding(16.dp)) {
-            TextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.fillMaxSize(),
-                placeholder = { Text("Enter text here...") }
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            wordsAndDefinitions.forEach { wordDef ->
+                WordDefinitionCard(wordDef)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun WordDefinitionCard(wordDefinition: WordDefinition) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = wordDefinition.word,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = wordDefinition.definition,
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
