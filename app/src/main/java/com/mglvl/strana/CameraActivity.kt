@@ -36,10 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -103,18 +105,18 @@ class CameraActivity : ComponentActivity() {
 @Composable
 fun CameraScreen(modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
-        // Camera preview takes up the top half
+        // Camera preview takes up the top 75%
         CameraPreview(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(300.dp)
+                .weight(0.75f)
         )
         
-        // Words and definitions area takes up the bottom half
+        // Words and definitions area takes up the bottom 40%
         WordsAndDefinitionsArea(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(0.4f)
         )
     }
 }
@@ -224,14 +226,56 @@ fun WordsAndDefinitionsArea(modifier: Modifier = Modifier) {
             )
         }
         
+        val scrollState = rememberScrollState()
+        
         Column(
             modifier = Modifier
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .fillMaxSize()
         ) {
-            wordsAndDefinitions.forEach { wordDef ->
-                WordDefinitionCard(wordDef)
-                Spacer(modifier = Modifier.height(8.dp))
+            // Header text showing number of words found
+            Text(
+                text = "I found ${wordsAndDefinitions.size} unusual words!",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
+            
+            // Scrollable content with words and definitions
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState)
+            ) {
+                wordsAndDefinitions.forEach { wordDef ->
+                    WordDefinitionCard(wordDef)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                
+                // Add extra space at the bottom to make scrolling more obvious
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            
+            // Visual indicator that there's more content to scroll
+            if (!scrollState.canScrollForward && scrollState.value > 0) {
+                // We're at the bottom
+            } else if (!scrollState.canScrollBackward && scrollState.value == 0) {
+                // We're at the top, show indicator that there's more to scroll
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Scroll down for more words",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
