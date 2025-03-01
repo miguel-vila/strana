@@ -89,6 +89,9 @@ class CameraActivity : ComponentActivity() {
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
+        // Initialize StrangeWordConfig with application context
+        StrangeWordConfig.initialize(applicationContext)
+
         setContent {
             StranaTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -245,12 +248,41 @@ data class WordDefinition(
 
 // Configuration for what makes a word "strange"
 object StrangeWordConfig {
-    // Minimum length for a word to be considered strange
-    const val MIN_LENGTH = 10
+    private val commonWords = mutableSetOf<String>()
+    private const val TOP_WORDS_COUNT = 25000
+    private var isInitialized = false
+
+    fun initialize(context: android.content.Context) {
+        if (isInitialized) return
+        
+        try {
+            val inputStream = context.assets.open("en_50k.txt")
+            val reader = inputStream.bufferedReader()
+            
+            var count = 0
+            reader.useLines { lines ->
+                lines.forEach { line ->
+                    if (count < TOP_WORDS_COUNT) {
+                        commonWords.add(line.trim().lowercase())
+                        count++
+                    } else {
+                        return@forEach
+                    }
+                }
+            }
+            
+            isInitialized = true
+            Log.d("StrangeWordConfig", "Loaded $count common words")
+            
+        } catch (e: Exception) {
+            Log.e("StrangeWordConfig", "Error loading word list", e)
+            throw e
+        }
+    }
     
     // Function to determine if a word is strange based on current config
     fun isStrange(word: String): Boolean {
-        return word.length >= MIN_LENGTH
+        return !commonWords.contains(word.lowercase())
     }
 }
 
@@ -259,6 +291,7 @@ fun WordsAndDefinitionsArea(
     modifier: Modifier = Modifier,
     recognizedWords: List<String>
 ) {
+    val STRANGE_WORDS_LIMIT = 15
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.background
@@ -267,6 +300,7 @@ fun WordsAndDefinitionsArea(
         val strangeWords = remember(recognizedWords) {
             recognizedWords
                 .filter { StrangeWordConfig.isStrange(it) }
+                .take(STRANGE_WORDS_LIMIT)
                 .distinct()
                 .map { word ->
                     // For now, we'll use a placeholder definition
