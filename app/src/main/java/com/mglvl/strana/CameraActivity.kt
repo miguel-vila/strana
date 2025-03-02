@@ -17,6 +17,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.colorResource
@@ -65,6 +67,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Properties
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import androidx.camera.core.ImageAnalysis
+import java.nio.ByteBuffer
 
 class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -151,6 +158,58 @@ fun CameraScreen(
 
 data class Word(val word: String, val posTag: String)
 
+// Helper function to convert ImageProxy to Bitmap
+fun ImageProxy.toScaledBitmap(): Bitmap {
+    val buffer = planes[0].buffer
+    val bytes = ByteArray(buffer.remaining())
+    buffer.get(bytes)
+    
+    // Set inSampleSize to downsample the image during decoding
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = 4  // Downsample by factor of 4
+    }
+    
+    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    
+    // Rotate the bitmap if needed based on the image rotation
+    val rotationDegrees = imageInfo.rotationDegrees
+    val rotatedBitmap = if (rotationDegrees != 0) {
+        val matrix = Matrix()
+        matrix.postRotate(rotationDegrees.toFloat())
+        Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    } else {
+        bitmap
+    }
+    
+    // Scale down the bitmap to a reasonable size to avoid "Canvas: trying to draw too large bitmap" error
+    return scaleBitmap(rotatedBitmap, 800)  // Reduced from 1280 to 800
+}
+
+// Helper function to scale down a bitmap while maintaining aspect ratio
+fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
+    val width = bitmap.width
+    val height = bitmap.height
+    
+    // If the bitmap is already smaller than the max dimension, return it as is
+    if (width <= maxDimension && height <= maxDimension) {
+        return bitmap
+    }
+    
+    // Calculate the scaling factor
+    val scaleFactor = if (width > height) {
+        maxDimension.toFloat() / width.toFloat()
+    } else {
+        maxDimension.toFloat() / height.toFloat()
+    }
+    
+    // Calculate new dimensions
+    val newWidth = (width * scaleFactor).toInt()
+    val newHeight = (height * scaleFactor).toInt()
+    
+    // Create and return the scaled bitmap
+    return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+}
+
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
@@ -167,54 +226,70 @@ fun CameraPreview(
     
     // State to track if scanning is in progress
     var isScanning by remember { mutableStateOf(false) }
+    
+    // State to hold the captured image bitmap
+    var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
     val pipeline = StanfordCoreNLP(props)
 
     Box(modifier = modifier) {
-        // Camera preview
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
-                val previewView = PreviewView(ctx)
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+        // Show either the camera preview or the captured image
+        if (capturedBitmap != null) {
+            // Show the frozen image
+            Image(
+                bitmap = capturedBitmap!!.asImageBitmap(),
+                contentDescription = "Captured Image",
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // Camera preview
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    val previewView = PreviewView(ctx)
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
-                cameraProviderFuture.addListener({
-                    val cameraProvider = cameraProviderFuture.get()
+                    cameraProviderFuture.addListener({
+                        val cameraProvider = cameraProviderFuture.get()
 
-                    val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
-                    }
+                        val preview = Preview.Builder().build().also {
+                            it.setSurfaceProvider(previewView.surfaceProvider)
+                        }
 
-                    // Set up the image capture use case
-                    val newImageCapture = ImageCapture.Builder().build()
-                    imageCapture = newImageCapture
+                        // Set up the image capture use case
+                        val newImageCapture = ImageCapture.Builder().build()
+                        imageCapture = newImageCapture
 
-                    val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-                    try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            newImageCapture
-                        )
-                    } catch (e: Exception) {
-                        Log.e("CameraActivity", "Use case binding failed", e)
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
+                        try {
+                            cameraProvider.unbindAll()
+                            cameraProvider.bindToLifecycle(
+                                lifecycleOwner,
+                                cameraSelector,
+                                preview,
+                                newImageCapture
+                            )
+                        } catch (e: Exception) {
+                            Log.e("CameraActivity", "Use case binding failed", e)
+                        }
+                    }, ContextCompat.getMainExecutor(ctx))
 
-                previewView
-            }
-        )
+                    previewView
+                }
+            )
+        }
         
-        // Scan button in the center of the screen
+        // Button in the center of the screen - either "Scan" or "Open Camera"
         Button(
             onClick = {
-                Log.d("CameraActivity", "Scan button clicked, isScanning: $isScanning")
-                if (!isScanning) {
+                if (capturedBitmap != null && !isScanning) {
+                    // If we have a captured image and not scanning, reset to camera view
+                    capturedBitmap = null
+                } else if (!isScanning) {
+                    // Otherwise, if not scanning, take a picture
                     isScanning = true
                     
                     val currentImageCapture = imageCapture
@@ -226,6 +301,9 @@ fun CameraPreview(
                             object : ImageCapture.OnImageCapturedCallback() {
                                 override fun onCaptureSuccess(imageProxy: ImageProxy) {
                                     Log.d("CameraActivity", "Image captured successfully")
+
+                                    // Convert the captured image to bitmap and store it
+                                    capturedBitmap = imageProxy.toScaledBitmap()
 
                                     val image = imageProxy.image
                                     if (image != null) {
@@ -248,18 +326,21 @@ fun CameraPreview(
 
                                                 words
                                                     .forEach { w ->
-                                                    Log.d("CameraActivity", "word : '${w}'")
-                                                }
+                                                        Log.d("CameraActivity", "word : '${w}'")
+                                                    }
 
+                                                // Only reset scanning state, keep the bitmap
                                                 isScanning = false
                                             }
                                             .addOnFailureListener { e ->
                                                 Log.e("CameraActivity", "Text recognition failed", e)
                                                 isScanning = false
+                                                // Keep the bitmap even on failure
                                             }
                                     } else {
                                         Log.e("CameraActivity", "Image is null")
                                         isScanning = false
+                                        capturedBitmap = null
                                     }
 
                                     // Close the image to release resources
@@ -269,6 +350,7 @@ fun CameraPreview(
                                 override fun onError(exception: ImageCaptureException) {
                                     Log.e("CameraActivity", "Image capture failed", exception)
                                     isScanning = false
+                                    capturedBitmap = null
                                 }
                             }
                         )
@@ -286,6 +368,8 @@ fun CameraPreview(
                     modifier = Modifier.padding(4.dp),
                     strokeWidth = 2.dp
                 )
+            } else if (capturedBitmap != null) {
+                Text(text = "Open Camera")
             } else {
                 Text(text = stringResource(R.string.scan_button))
             }
