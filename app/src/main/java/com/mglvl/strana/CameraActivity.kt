@@ -17,6 +17,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,14 +44,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -70,8 +77,11 @@ import java.util.Properties
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
 import java.nio.ByteBuffer
+import kotlin.math.max
+import kotlin.math.min
 
 class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
@@ -156,7 +166,11 @@ fun CameraScreen(
     }
 }
 
-data class Word(val word: String, val posTag: String)
+data class Word(
+    val word: String,
+    val posTag: String,
+    val bounds: Rect? = null // Add bounds information
+)
 
 // Helper function to convert ImageProxy to Bitmap
 fun ImageProxy.toScaledBitmap(): Bitmap {
@@ -230,19 +244,69 @@ fun CameraPreview(
     // State to hold the captured image bitmap
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
+    // State to hold container size for scaling calculations
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+
+    // State to hold the recognized words with their bounding boxes
+    var wordsWithBounds by remember { mutableStateOf<List<Word>>(emptyList()) }
+
+    // State to track the scaling factor applied to the original image
+    var inputImageWidth by remember { mutableStateOf(1) }
+    var inputImageHeight by remember { mutableStateOf(1) }
+
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
     val pipeline = StanfordCoreNLP(props)
 
-    Box(modifier = modifier) {
+    Box(modifier = modifier.onSizeChanged { containerSize = it }) {
         // Show either the camera preview or the captured image
         if (capturedBitmap != null) {
-            // Show the frozen image
-            Image(
-                bitmap = capturedBitmap!!.asImageBitmap(),
-                contentDescription = "Captured Image",
-                modifier = Modifier.fillMaxSize()
-            )
+            // Show the frozen image with bounding boxes
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Show the frozen image
+                Image(
+                    bitmap = capturedBitmap!!.asImageBitmap(),
+                    contentDescription = "Captured Image",
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // Draw bounding boxes overlay
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Calculate scale factors for bounding boxes
+                    val bitmap = capturedBitmap ?: return@Canvas
+                    val widthScalingFactor = size.width / inputImageWidth
+                    val heightScalingFactor = size.height / inputImageHeight
+
+                    Log.d(
+                        "Canvas",
+                        "Drawing canvas overlay. Image size: ${bitmap.width}x${bitmap.height}, " +
+                                "Canvas size: ${size.width}x${size.height}, Scale: $widthScalingFactor, $heightScalingFactor"
+                    )
+
+                    // Draw rectangles around strange words
+                    val strangeWords =
+                        wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
+
+                    strangeWords.forEach { word ->
+                        word.bounds?.let { rect ->
+                            val left = rect.left.toFloat() * widthScalingFactor
+                            val top = rect.top.toFloat() * heightScalingFactor
+                            val width = (rect.right - rect.left).toFloat() * widthScalingFactor
+                            val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+                            val right = left + width
+                            val bottom = top + height
+
+                            // Draw rectangle around the word
+                            drawRect(
+                                color = Color.Red,
+                                topLeft = Offset(left, top),
+                                size = Size(width, height),
+                                style = Stroke(width = 5f) // Increased width for better visibility
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             // Camera preview
             AndroidView(
@@ -288,6 +352,7 @@ fun CameraPreview(
                 if (capturedBitmap != null && !isScanning) {
                     // If we have a captured image and not scanning, reset to camera view
                     capturedBitmap = null
+                    wordsWithBounds = emptyList()
                 } else if (!isScanning) {
                     // Otherwise, if not scanning, take a picture
                     isScanning = true
@@ -303,7 +368,8 @@ fun CameraPreview(
                                     Log.d("CameraActivity", "Image captured successfully")
 
                                     // Convert the captured image to bitmap and store it
-                                    capturedBitmap = imageProxy.toScaledBitmap()
+                                    val scaledBitmap = imageProxy.toScaledBitmap()
+                                    capturedBitmap = scaledBitmap
 
                                     val image = imageProxy.image
                                     if (image != null) {
@@ -311,12 +377,47 @@ fun CameraPreview(
                                             image,
                                             imageProxy.imageInfo.rotationDegrees
                                         )
+                                        inputImageWidth = inputImage.width
+                                        inputImageHeight = inputImage.height
+
                                         recognizer.process(inputImage)
                                             .addOnSuccessListener { result ->
+                                                // Create a map to store word to bounding box mapping
+                                                val wordBoundsMap = mutableMapOf<String, Rect>()
+
+                                                // Extract text blocks, lines, and elements with their bounding boxes
+                                                for (block in result.textBlocks) {
+                                                    for (line in block.lines) {
+                                                        for (element in line.elements) {
+
+                                                            element.boundingBox?.let { bounds ->
+                                                                Log.d(
+                                                                    "TextRecognition",
+                                                                    "Found element: '${element.text}' with bounds: $bounds"
+                                                                )
+                                                                wordBoundsMap[element.text] = bounds
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
                                                 val document =
                                                     pipeline.processToCoreDocument(result.text)
                                                 val words = document.tokens().map { token ->
-                                                    Word(token.word(), token.tag())
+                                                    // Create Word objects with bounds from the map
+                                                    val tokenWord = token.word()
+                                                    val bounds = wordBoundsMap[tokenWord]
+
+                                                    Log.d(
+                                                        "WordMapping",
+                                                        "Token: '$tokenWord', bounds: $bounds"
+                                                    )
+
+                                                    Word(
+                                                        word = tokenWord,
+                                                        posTag = token.tag(),
+                                                        bounds = bounds
+                                                    )
                                                 }.filter { w: Word ->
                                                     !setOf(
                                                         "NNP",
@@ -334,15 +435,28 @@ fun CameraPreview(
                                                     .filter { w: Word ->
                                                         w.word.length > 2 && !w.word.all { c -> c.isDigit() }
                                                     }
+
                                                 if (words.isNotEmpty()) {
+                                                    // Store words with bounds
+                                                    wordsWithBounds = words
                                                     // Pass the recognized words to the callback
                                                     onWordsRecognized(words)
+
+                                                    // Log summary of words with bounds
+                                                    val wordsWithValidBounds =
+                                                        words.count { it.bounds != null }
+                                                    Log.d(
+                                                        "WordsWithBounds",
+                                                        "Total words: ${words.size}, Words with bounds: $wordsWithValidBounds"
+                                                    )
                                                 }
 
-                                                words
-                                                    .forEach { w ->
-                                                        Log.d("CameraActivity", "word : '${w}'")
-                                                    }
+                                                words.forEach { w ->
+                                                    Log.d(
+                                                        "CameraActivity",
+                                                        "word : '${w.word}', bounds: ${w.bounds}"
+                                                    )
+                                                }
 
                                                 // Only reset scanning state, keep the bitmap
                                                 isScanning = false
@@ -453,7 +567,7 @@ fun WordsAndDefinitionsArea(
             recognizedWords
                 .filter { StrangeWordConfig.isStrange(it.word) }
                 .take(STRANGE_WORDS_LIMIT)
-                .distinct()
+                .distinctBy { it.word }
         }
 
         // State to hold word definitions
