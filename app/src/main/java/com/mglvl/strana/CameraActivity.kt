@@ -319,6 +319,9 @@ fun CameraPreview(
                                                 }.filter {
                                                         w: Word -> !setOf("NNP", "NNPS", ",", ".", "HYPH", "``", "''", ":", "RRB-" , "LRB-").contains(w.posTag)
                                                 }
+                                                .filter {
+                                                    w: Word -> w.word.length > 2 && !w.word.all { c -> c.isDigit() }
+                                                }
                                                 if (words.isNotEmpty()) {
                                                     // Pass the recognized words to the callback
                                                     onWordsRecognized(words)
