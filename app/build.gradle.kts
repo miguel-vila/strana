@@ -67,9 +67,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:${cameraxVersion}")
     implementation("androidx.camera:camera-view:${cameraxVersion}")
 
-    // OCR
-    val mlKitTextRecognitionVersion = "16.0.1"
-    implementation("com.google.mlkit:text-recognition:${mlKitTextRecognitionVersion}")
+    // Tesseract4Android for OCR (replacing ML Kit)
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.8.0")
     
     // HTTP Client - Retrofit and Gson
     implementation("com.squareup.retrofit2:retrofit:2.9.0")

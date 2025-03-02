@@ -3,3 +3,12 @@ plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.jetbrains.kotlin.android) apply false
 }
+
+// Add JitPack repository for all projects
+//allprojects {
+//    repositories {
+//        google()
+//        mavenCentral()
+//        maven { url = uri("https://jitpack.io") }
+//    }
+//}
