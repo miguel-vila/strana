@@ -133,7 +133,7 @@ fun CameraScreen(
 ) {
     // Shared state for recognized words
     var recognizedWords by remember { mutableStateOf<List<Word>>(emptyList()) }
-    
+
     Column(modifier = modifier.fillMaxSize()) {
         // Camera preview takes up the top 75%
         CameraPreview(
@@ -163,14 +163,14 @@ fun ImageProxy.toScaledBitmap(): Bitmap {
     val buffer = planes[0].buffer
     val bytes = ByteArray(buffer.remaining())
     buffer.get(bytes)
-    
+
     // Set inSampleSize to downsample the image during decoding
     val options = BitmapFactory.Options().apply {
         inSampleSize = 4  // Downsample by factor of 4
     }
-    
+
     val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-    
+
     // Rotate the bitmap if needed based on the image rotation
     val rotationDegrees = imageInfo.rotationDegrees
     val rotatedBitmap = if (rotationDegrees != 0) {
@@ -180,7 +180,7 @@ fun ImageProxy.toScaledBitmap(): Bitmap {
     } else {
         bitmap
     }
-    
+
     // Scale down the bitmap to a reasonable size to avoid "Canvas: trying to draw too large bitmap" error
     return scaleBitmap(rotatedBitmap, 800)  // Reduced from 1280 to 800
 }
@@ -189,23 +189,23 @@ fun ImageProxy.toScaledBitmap(): Bitmap {
 fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
     val width = bitmap.width
     val height = bitmap.height
-    
+
     // If the bitmap is already smaller than the max dimension, return it as is
     if (width <= maxDimension && height <= maxDimension) {
         return bitmap
     }
-    
+
     // Calculate the scaling factor
     val scaleFactor = if (width > height) {
         maxDimension.toFloat() / width.toFloat()
     } else {
         maxDimension.toFloat() / height.toFloat()
     }
-    
+
     // Calculate new dimensions
     val newWidth = (width * scaleFactor).toInt()
     val newHeight = (height * scaleFactor).toInt()
-    
+
     // Create and return the scaled bitmap
     return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
 }
@@ -217,16 +217,16 @@ fun CameraPreview(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    
+
     // Create a remembered ImageCapture instance that persists across recompositions
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-    
+
     // Create the text recognizer
     val recognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-    
+
     // State to track if scanning is in progress
     var isScanning by remember { mutableStateOf(false) }
-    
+
     // State to hold the captured image bitmap
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
@@ -281,7 +281,7 @@ fun CameraPreview(
                 }
             )
         }
-        
+
         // Button in the center of the screen - either "Scan" or "Open Camera"
         Button(
             onClick = {
@@ -291,10 +291,10 @@ fun CameraPreview(
                 } else if (!isScanning) {
                     // Otherwise, if not scanning, take a picture
                     isScanning = true
-                    
+
                     val currentImageCapture = imageCapture
                     Log.d("CameraActivity", "imageCapture: ${currentImageCapture != null}")
-                    
+
                     if (currentImageCapture != null) {
                         currentImageCapture.takePicture(
                             ContextCompat.getMainExecutor(context),
@@ -313,15 +313,27 @@ fun CameraPreview(
                                         )
                                         recognizer.process(inputImage)
                                             .addOnSuccessListener { result ->
-                                                val document = pipeline.processToCoreDocument(result.text)
+                                                val document =
+                                                    pipeline.processToCoreDocument(result.text)
                                                 val words = document.tokens().map { token ->
                                                     Word(token.word(), token.tag())
-                                                }.filter {
-                                                        w: Word -> !setOf("NNP", "NNPS", ",", ".", "HYPH", "``", "''", ":", "RRB-" , "LRB-").contains(w.posTag)
+                                                }.filter { w: Word ->
+                                                    !setOf(
+                                                        "NNP",
+                                                        "NNPS",
+                                                        ",",
+                                                        ".",
+                                                        "HYPH",
+                                                        "``",
+                                                        "''",
+                                                        ":",
+                                                        "RRB-",
+                                                        "LRB-"
+                                                    ).contains(w.posTag)
                                                 }
-                                                .filter {
-                                                    w: Word -> w.word.length > 2 && !w.word.all { c -> c.isDigit() }
-                                                }
+                                                    .filter { w: Word ->
+                                                        w.word.length > 2 && !w.word.all { c -> c.isDigit() }
+                                                    }
                                                 if (words.isNotEmpty()) {
                                                     // Pass the recognized words to the callback
                                                     onWordsRecognized(words)
@@ -336,7 +348,11 @@ fun CameraPreview(
                                                 isScanning = false
                                             }
                                             .addOnFailureListener { e ->
-                                                Log.e("CameraActivity", "Text recognition failed", e)
+                                                Log.e(
+                                                    "CameraActivity",
+                                                    "Text recognition failed",
+                                                    e
+                                                )
                                                 isScanning = false
                                                 // Keep the bitmap even on failure
                                             }
@@ -388,11 +404,11 @@ object StrangeWordConfig {
 
     fun initialize(context: android.content.Context) {
         if (isInitialized) return
-        
+
         try {
             val inputStream = context.assets.open("en_50k.txt")
             val reader = inputStream.bufferedReader()
-            
+
             var count = 0
             reader.useLines { lines ->
                 lines.forEach { line ->
@@ -405,16 +421,16 @@ object StrangeWordConfig {
                     }
                 }
             }
-            
+
             isInitialized = true
             Log.d("StrangeWordConfig", "Loaded $count common words")
-            
+
         } catch (e: Exception) {
             Log.e("StrangeWordConfig", "Error loading word list", e)
             throw e
         }
     }
-    
+
     // Function to determine if a word is strange based on current config
     fun isStrange(word: String): Boolean {
         return !commonWords.contains(word.lowercase())
@@ -439,24 +455,24 @@ fun WordsAndDefinitionsArea(
                 .take(STRANGE_WORDS_LIMIT)
                 .distinct()
         }
-        
+
         // State to hold word definitions
         var wordDefinitions by remember { mutableStateOf<Map<String, WordDefinition?>>(emptyMap()) }
-        
+
         // Fetch definitions for strange words
         DisposableEffect(strangeWords) {
             strangeWords.forEach { word ->
                 if (!wordDefinitions.containsKey(word.word)) {
                     // Set loading state
                     wordDefinitions = wordDefinitions + (word.word to null)
-                    
+
                     // Fetch definition
                     dictionaryApiClient.getDefinition(word.word) { definition ->
                         wordDefinitions = wordDefinitions + (word.word to definition)
                     }
                 }
             }
-            
+
             onDispose { }
         }
 
@@ -531,9 +547,9 @@ fun WordDefinitionCard(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
-            
+
             Spacer(modifier = Modifier.height(4.dp))
-            
+
             if (definition == null) {
                 // Show loading indicator
                 Box(
@@ -565,7 +581,7 @@ fun WordDefinitionCard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                 }
-                
+
                 // Show definition
                 Text(
                     text = definition.definition,
