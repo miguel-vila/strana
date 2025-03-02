@@ -306,205 +306,216 @@ fun CameraPreview(
                         }
                     }
                 }
+                
+                // Position the button at the bottom right when showing captured image
+                Button(
+                    onClick = {
+                        capturedBitmap = null
+                        wordsWithBounds = emptyList()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp)
+                ) {
+                    Text(text = "Open Camera")
+                }
             }
         } else {
             // Camera preview
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    val previewView = PreviewView(ctx)
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            Box(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        val previewView = PreviewView(ctx)
+                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
 
-                    cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
+                        cameraProviderFuture.addListener({
+                            val cameraProvider = cameraProviderFuture.get()
 
-                        val preview = Preview.Builder().build().also {
-                            it.setSurfaceProvider(previewView.surfaceProvider)
-                        }
+                            val preview = Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
+                            }
 
-                        // Set up the image capture use case
-                        val newImageCapture = ImageCapture.Builder().build()
-                        imageCapture = newImageCapture
+                            // Set up the image capture use case
+                            val newImageCapture = ImageCapture.Builder().build()
+                            imageCapture = newImageCapture
 
-                        val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+                            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
-                        try {
-                            cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
-                                lifecycleOwner,
-                                cameraSelector,
-                                preview,
-                                newImageCapture
-                            )
-                        } catch (e: Exception) {
-                            Log.e("CameraActivity", "Use case binding failed", e)
-                        }
-                    }, ContextCompat.getMainExecutor(ctx))
+                            try {
+                                cameraProvider.unbindAll()
+                                cameraProvider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    cameraSelector,
+                                    preview,
+                                    newImageCapture
+                                )
+                            } catch (e: Exception) {
+                                Log.e("CameraActivity", "Use case binding failed", e)
+                            }
+                        }, ContextCompat.getMainExecutor(ctx))
 
-                    previewView
-                }
-            )
-        }
+                        previewView
+                    }
+                )
+                
+                // Position the scan button at the bottom right of the screen
+                Button(
+                    onClick = {
+                        if (!isScanning) {
+                            // Take a picture
+                            isScanning = true
 
-        // Button in the center of the screen - either "Scan" or "Open Camera"
-        Button(
-            onClick = {
-                if (capturedBitmap != null && !isScanning) {
-                    // If we have a captured image and not scanning, reset to camera view
-                    capturedBitmap = null
-                    wordsWithBounds = emptyList()
-                } else if (!isScanning) {
-                    // Otherwise, if not scanning, take a picture
-                    isScanning = true
+                            val currentImageCapture = imageCapture
+                            Log.d("CameraActivity", "imageCapture: ${currentImageCapture != null}")
 
-                    val currentImageCapture = imageCapture
-                    Log.d("CameraActivity", "imageCapture: ${currentImageCapture != null}")
+                            if (currentImageCapture != null) {
+                                currentImageCapture.takePicture(
+                                    ContextCompat.getMainExecutor(context),
+                                    object : ImageCapture.OnImageCapturedCallback() {
+                                        override fun onCaptureSuccess(imageProxy: ImageProxy) {
+                                            Log.d("CameraActivity", "Image captured successfully")
 
-                    if (currentImageCapture != null) {
-                        currentImageCapture.takePicture(
-                            ContextCompat.getMainExecutor(context),
-                            object : ImageCapture.OnImageCapturedCallback() {
-                                override fun onCaptureSuccess(imageProxy: ImageProxy) {
-                                    Log.d("CameraActivity", "Image captured successfully")
+                                            // Convert the captured image to bitmap and store it
+                                            val scaledBitmap = imageProxy.toScaledBitmap()
+                                            capturedBitmap = scaledBitmap
 
-                                    // Convert the captured image to bitmap and store it
-                                    val scaledBitmap = imageProxy.toScaledBitmap()
-                                    capturedBitmap = scaledBitmap
+                                            val image = imageProxy.image
+                                            if (image != null) {
+                                                val inputImage = InputImage.fromMediaImage(
+                                                    image,
+                                                    imageProxy.imageInfo.rotationDegrees
+                                                )
+                                                inputImageWidth = inputImage.width
+                                                inputImageHeight = inputImage.height
 
-                                    val image = imageProxy.image
-                                    if (image != null) {
-                                        val inputImage = InputImage.fromMediaImage(
-                                            image,
-                                            imageProxy.imageInfo.rotationDegrees
-                                        )
-                                        inputImageWidth = inputImage.width
-                                        inputImageHeight = inputImage.height
+                                                recognizer.process(inputImage)
+                                                    .addOnSuccessListener { result ->
+                                                        // Create a map to store word to bounding box mapping
+                                                        val wordBoundsMap = mutableMapOf<String, Rect>()
 
-                                        recognizer.process(inputImage)
-                                            .addOnSuccessListener { result ->
-                                                // Create a map to store word to bounding box mapping
-                                                val wordBoundsMap = mutableMapOf<String, Rect>()
+                                                        // Extract text blocks, lines, and elements with their bounding boxes
+                                                        for (block in result.textBlocks) {
+                                                            for (line in block.lines) {
+                                                                for (element in line.elements) {
 
-                                                // Extract text blocks, lines, and elements with their bounding boxes
-                                                for (block in result.textBlocks) {
-                                                    for (line in block.lines) {
-                                                        for (element in line.elements) {
-
-                                                            element.boundingBox?.let { bounds ->
-                                                                Log.d(
-                                                                    "TextRecognition",
-                                                                    "Found element: '${element.text}' with bounds: $bounds"
-                                                                )
-                                                                wordBoundsMap[element.text] = bounds
+                                                                    element.boundingBox?.let { bounds ->
+                                                                        Log.d(
+                                                                            "TextRecognition",
+                                                                            "Found element: '${element.text}' with bounds: $bounds"
+                                                                        )
+                                                                        wordBoundsMap[element.text] = bounds
+                                                                    }
+                                                                }
                                                             }
                                                         }
+
+                                                        val document =
+                                                            pipeline.processToCoreDocument(result.text)
+                                                        val words = document.tokens().map { token ->
+                                                            // Create Word objects with bounds from the map
+                                                            val tokenWord = token.word()
+                                                            val bounds = wordBoundsMap[tokenWord]
+
+                                                            Log.d(
+                                                                "WordMapping",
+                                                                "Token: '$tokenWord', bounds: $bounds"
+                                                            )
+
+                                                            Word(
+                                                                word = tokenWord,
+                                                                posTag = token.tag(),
+                                                                bounds = bounds
+                                                            )
+                                                        }.filter { w: Word ->
+                                                            !setOf(
+                                                                "NNP",
+                                                                "NNPS",
+                                                                ",",
+                                                                ".",
+                                                                "HYPH",
+                                                                "``",
+                                                                "''",
+                                                                ":",
+                                                                "RRB-",
+                                                                "LRB-"
+                                                            ).contains(w.posTag)
+                                                        }
+                                                            .filter { w: Word ->
+                                                                w.word.length > 2 && !w.word.all { c -> c.isDigit() }
+                                                            }
+
+                                                        if (words.isNotEmpty()) {
+                                                            // Store words with bounds
+                                                            wordsWithBounds = words
+                                                            // Pass the recognized words to the callback
+                                                            onWordsRecognized(words)
+
+                                                            // Log summary of words with bounds
+                                                            val wordsWithValidBounds =
+                                                                words.count { it.bounds != null }
+                                                            Log.d(
+                                                                "WordsWithBounds",
+                                                                "Total words: ${words.size}, Words with bounds: $wordsWithValidBounds"
+                                                            )
+                                                        }
+
+                                                        words.forEach { w ->
+                                                            Log.d(
+                                                                "CameraActivity",
+                                                                "word : '${w.word}', bounds: ${w.bounds}"
+                                                            )
+                                                        }
+
+                                                        // Only reset scanning state, keep the bitmap
+                                                        isScanning = false
                                                     }
-                                                }
-
-                                                val document =
-                                                    pipeline.processToCoreDocument(result.text)
-                                                val words = document.tokens().map { token ->
-                                                    // Create Word objects with bounds from the map
-                                                    val tokenWord = token.word()
-                                                    val bounds = wordBoundsMap[tokenWord]
-
-                                                    Log.d(
-                                                        "WordMapping",
-                                                        "Token: '$tokenWord', bounds: $bounds"
-                                                    )
-
-                                                    Word(
-                                                        word = tokenWord,
-                                                        posTag = token.tag(),
-                                                        bounds = bounds
-                                                    )
-                                                }.filter { w: Word ->
-                                                    !setOf(
-                                                        "NNP",
-                                                        "NNPS",
-                                                        ",",
-                                                        ".",
-                                                        "HYPH",
-                                                        "``",
-                                                        "''",
-                                                        ":",
-                                                        "RRB-",
-                                                        "LRB-"
-                                                    ).contains(w.posTag)
-                                                }
-                                                    .filter { w: Word ->
-                                                        w.word.length > 2 && !w.word.all { c -> c.isDigit() }
+                                                    .addOnFailureListener { e ->
+                                                        Log.e(
+                                                            "CameraActivity",
+                                                            "Text recognition failed",
+                                                            e
+                                                        )
+                                                        isScanning = false
+                                                        // Keep the bitmap even on failure
                                                     }
-
-                                                if (words.isNotEmpty()) {
-                                                    // Store words with bounds
-                                                    wordsWithBounds = words
-                                                    // Pass the recognized words to the callback
-                                                    onWordsRecognized(words)
-
-                                                    // Log summary of words with bounds
-                                                    val wordsWithValidBounds =
-                                                        words.count { it.bounds != null }
-                                                    Log.d(
-                                                        "WordsWithBounds",
-                                                        "Total words: ${words.size}, Words with bounds: $wordsWithValidBounds"
-                                                    )
-                                                }
-
-                                                words.forEach { w ->
-                                                    Log.d(
-                                                        "CameraActivity",
-                                                        "word : '${w.word}', bounds: ${w.bounds}"
-                                                    )
-                                                }
-
-                                                // Only reset scanning state, keep the bitmap
+                                            } else {
+                                                Log.e("CameraActivity", "Image is null")
                                                 isScanning = false
+                                                capturedBitmap = null
                                             }
-                                            .addOnFailureListener { e ->
-                                                Log.e(
-                                                    "CameraActivity",
-                                                    "Text recognition failed",
-                                                    e
-                                                )
-                                                isScanning = false
-                                                // Keep the bitmap even on failure
-                                            }
-                                    } else {
-                                        Log.e("CameraActivity", "Image is null")
-                                        isScanning = false
-                                        capturedBitmap = null
+
+                                            // Close the image to release resources
+                                            imageProxy.close()
+                                        }
+
+                                        override fun onError(exception: ImageCaptureException) {
+                                            Log.e("CameraActivity", "Image capture failed", exception)
+                                            isScanning = false
+                                            capturedBitmap = null
+                                        }
                                     }
-
-                                    // Close the image to release resources
-                                    imageProxy.close()
-                                }
-
-                                override fun onError(exception: ImageCaptureException) {
-                                    Log.e("CameraActivity", "Image capture failed", exception)
-                                    isScanning = false
-                                    capturedBitmap = null
-                                }
+                                )
+                            } else {
+                                Log.e("CameraActivity", "ImageCapture is null, cannot take picture")
+                                isScanning = false
                             }
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(16.dp),
+                    enabled = !isScanning
+                ) {
+                    if (isScanning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(4.dp),
+                            strokeWidth = 2.dp
                         )
                     } else {
-                        Log.e("CameraActivity", "ImageCapture is null, cannot take picture")
-                        isScanning = false
+                        Text(text = stringResource(R.string.scan_button))
                     }
                 }
-            },
-            modifier = Modifier.align(Alignment.Center),
-            enabled = !isScanning
-        ) {
-            if (isScanning) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(4.dp),
-                    strokeWidth = 2.dp
-                )
-            } else if (capturedBitmap != null) {
-                Text(text = "Open Camera")
-            } else {
-                Text(text = stringResource(R.string.scan_button))
             }
         }
     }
