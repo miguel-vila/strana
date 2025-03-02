@@ -4,4 +4,11 @@
     <string name="scan_button">Scan</string>
     <string name="found_words">I found %1$d unusual words!</string>
     <string name="scroll_for_more">Scroll down for more words</string>
+    <string name="tap_word_instruction">Tap on a highlighted word</string>
+    <string name="tap_word_explanation">Tap on any red-outlined word in the image to see its definition</string>
+    <string name="word_details">Word Details</string>
+    <string name="camera_instruction">Camera Ready</string>
+    <string name="camera_guidance">Point your camera to some text and click scan!</string>
+    <string name="no_strange_words">No unusual words found</string>
+    <string name="no_strange_words_guidance">Try scanning a different text with more complex vocabulary</string>
 </resources>

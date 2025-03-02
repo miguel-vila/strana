@@ -19,6 +19,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -45,10 +46,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -77,8 +80,8 @@ import java.util.Properties
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.graphics.Rect
 import androidx.camera.core.ImageAnalysis
+import androidx.compose.foundation.gestures.detectTapGestures
 import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
@@ -141,8 +144,15 @@ fun CameraScreen(
     modifier: Modifier = Modifier,
     dictionaryApiClient: DictionaryApiClient
 ) {
+    // State for selected word and its definition
+    var selectedWord by remember { mutableStateOf<Word?>(null) }
+    var selectedWordDefinition by remember { mutableStateOf<WordDefinition?>(null) }
+    
     // Shared state for recognized words
     var recognizedWords by remember { mutableStateOf<List<Word>>(emptyList()) }
+    
+    // State to track if camera is active (no image captured yet)
+    var isCameraActive by remember { mutableStateOf(true) }
 
     Column(modifier = modifier.fillMaxSize()) {
         // Camera preview takes up the top 75%
@@ -152,6 +162,23 @@ fun CameraScreen(
                 .weight(0.75f),
             onWordsRecognized = { words ->
                 recognizedWords = words
+            },
+            onWordSelected = { word ->
+                selectedWord = word
+                selectedWordDefinition = null // Reset definition when new word is selected
+                
+                // Fetch definition for the selected word
+                dictionaryApiClient.getDefinition(word.word) { definition ->
+                    selectedWordDefinition = definition
+                }
+            },
+            onCameraStateChanged = { isActive ->
+                isCameraActive = isActive
+                // Reset word selection when returning to camera
+                if (isActive) {
+                    selectedWord = null
+                    selectedWordDefinition = null
+                }
             }
         )
 
@@ -160,8 +187,10 @@ fun CameraScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(0.4f),
-            recognizedWords = recognizedWords,
-            dictionaryApiClient = dictionaryApiClient
+            selectedWord = selectedWord,
+            selectedWordDefinition = selectedWordDefinition,
+            isCameraActive = isCameraActive,
+            hasStrangeWords = recognizedWords.any { StrangeWordConfig.isStrange(it.word) }
         )
     }
 }
@@ -169,7 +198,7 @@ fun CameraScreen(
 data class Word(
     val word: String,
     val posTag: String,
-    val bounds: Rect? = null // Add bounds information
+    val bounds: android.graphics.Rect? = null // Add bounds information
 )
 
 // Helper function to convert ImageProxy to Bitmap
@@ -227,7 +256,9 @@ fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
 @Composable
 fun CameraPreview(
     modifier: Modifier = Modifier,
-    onWordsRecognized: (List<Word>) -> Unit
+    onWordsRecognized: (List<Word>) -> Unit,
+    onWordSelected: (Word) -> Unit,
+    onCameraStateChanged: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -251,12 +282,15 @@ fun CameraPreview(
     var wordsWithBounds by remember { mutableStateOf<List<Word>>(emptyList()) }
 
     // State to track the scaling factor applied to the original image
-    var inputImageWidth by remember { mutableStateOf(1) }
-    var inputImageHeight by remember { mutableStateOf(1) }
+    var inputImageWidth by remember { mutableStateOf(1f) }
+    var inputImageHeight by remember { mutableStateOf(1f) }
 
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
     val pipeline = StanfordCoreNLP(props)
+    
+    // Update camera state whenever capturedBitmap changes
+    onCameraStateChanged(capturedBitmap == null)
 
     Box(modifier = modifier.onSizeChanged { containerSize = it }) {
         // Show either the camera preview or the captured image
@@ -270,8 +304,40 @@ fun CameraPreview(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Draw bounding boxes overlay
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                // Draw bounding boxes overlay with touch detection
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(wordsWithBounds) {
+                            detectTapGestures { tapOffset ->
+                                // Calculate scale factors for touch coordinates
+                                val widthScalingFactor = size.width / inputImageWidth
+                                val heightScalingFactor = size.height / inputImageHeight
+
+                                // Check if the tap is inside any word bounding box
+                                val strangeWords = wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
+
+                                var wordSelected = false
+                                for (word in strangeWords) {
+                                    if (wordSelected) break
+                                    word.bounds?.let { rect ->
+                                        val left = rect.left.toFloat() * widthScalingFactor
+                                        val top = rect.top.toFloat() * heightScalingFactor
+                                        val width = (rect.right - rect.left).toFloat() * widthScalingFactor
+                                        val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+
+                                        // Create a Compose Rect for easier hit testing
+                                        val wordRect = Rect(left, top, left + width, top + height)
+
+                                        if (wordRect.contains(tapOffset)) {
+                                            onWordSelected(word)
+                                            wordSelected = true
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                ) {
                     // Calculate scale factors for bounding boxes
                     val bitmap = capturedBitmap ?: return@Canvas
                     val widthScalingFactor = size.width / inputImageWidth
@@ -293,8 +359,6 @@ fun CameraPreview(
                             val top = rect.top.toFloat() * heightScalingFactor
                             val width = (rect.right - rect.left).toFloat() * widthScalingFactor
                             val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
-                            val right = left + width
-                            val bottom = top + height
 
                             // Draw rectangle around the word
                             drawRect(
@@ -386,13 +450,13 @@ fun CameraPreview(
                                                     image,
                                                     imageProxy.imageInfo.rotationDegrees
                                                 )
-                                                inputImageWidth = inputImage.width
-                                                inputImageHeight = inputImage.height
+                                                inputImageWidth = inputImage.width.toFloat()
+                                                inputImageHeight = inputImage.height.toFloat()
 
                                                 recognizer.process(inputImage)
                                                     .addOnSuccessListener { result ->
                                                         // Create a map to store word to bounding box mapping
-                                                        val wordBoundsMap = mutableMapOf<String, Rect>()
+                                                        val wordBoundsMap = mutableMapOf<String, android.graphics.Rect>()
 
                                                         // Extract text blocks, lines, and elements with their bounding boxes
                                                         for (block in result.textBlocks) {
@@ -442,7 +506,7 @@ fun CameraPreview(
                                                             ).contains(w.posTag)
                                                         }
                                                             .filter { w: Word ->
-                                                                w.word.length > 2 && !w.word.all { c -> c.isDigit() }
+                                                                w.word.length > 2 && !w.word.contains(Regex("[0-9]"))
                                                             }
 
                                                         if (words.isNotEmpty()) {
@@ -565,52 +629,28 @@ object StrangeWordConfig {
 @Composable
 fun WordsAndDefinitionsArea(
     modifier: Modifier = Modifier,
-    recognizedWords: List<Word>,
-    dictionaryApiClient: DictionaryApiClient
+    selectedWord: Word?,
+    selectedWordDefinition: WordDefinition?,
+    isCameraActive: Boolean,
+    hasStrangeWords: Boolean
 ) {
-    val STRANGE_WORDS_LIMIT = 15
     Surface(
         modifier = modifier,
         color = MaterialTheme.colorScheme.background
     ) {
-        // Filter for strange words based on our configuration
-        val strangeWords = remember(recognizedWords) {
-            recognizedWords
-                .filter { StrangeWordConfig.isStrange(it.word) }
-                .take(STRANGE_WORDS_LIMIT)
-                .distinctBy { it.word }
-        }
-
-        // State to hold word definitions
-        var wordDefinitions by remember { mutableStateOf<Map<String, WordDefinition?>>(emptyMap()) }
-
-        // Fetch definitions for strange words
-        DisposableEffect(strangeWords) {
-            strangeWords.forEach { word ->
-                if (!wordDefinitions.containsKey(word.word)) {
-                    // Set loading state
-                    wordDefinitions = wordDefinitions + (word.word to null)
-
-                    // Fetch definition
-                    dictionaryApiClient.getDefinition(word.word) { definition ->
-                        wordDefinitions = wordDefinitions + (word.word to definition)
-                    }
-                }
-            }
-
-            onDispose { }
-        }
-
-        val scrollState = rememberScrollState()
-
         Column(
             modifier = Modifier
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .fillMaxSize()
         ) {
-            // Header text showing number of words found
+            // Header text with appropriate instruction based on state
             Text(
-                text = stringResource(R.string.found_words, strangeWords.size),
+                text = when {
+                    isCameraActive -> stringResource(R.string.camera_instruction)
+                    selectedWord != null -> stringResource(R.string.word_details)
+                    hasStrangeWords -> stringResource(R.string.tap_word_instruction)
+                    else -> stringResource(R.string.no_strange_words)
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
@@ -619,38 +659,62 @@ fun WordsAndDefinitionsArea(
                     .padding(bottom = 8.dp)
             )
 
-            // Scrollable content with words and definitions
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(scrollState)
-            ) {
-                strangeWords.forEach { word ->
-                    val definition = wordDefinitions[word.word]
-                    WordDefinitionCard(word.word, definition)
-                    Spacer(modifier = Modifier.height(8.dp))
+            // Show content based on state
+            when {
+                // When camera is active, show camera guidance
+                isCameraActive -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.camera_guidance),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
-
-                // Add extra space at the bottom to make scrolling more obvious
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-
-            // Visual indicator that there's more content to scroll
-            if (!scrollState.canScrollForward && scrollState.value > 0) {
-                // We're at the bottom
-            } else if (!scrollState.canScrollBackward && scrollState.value == 0) {
-                // We're at the top, show indicator that there's more to scroll
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.scroll_for_more),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
+                // When a word is selected, show its definition
+                selectedWord != null -> {
+                    WordDefinitionCard(
+                        word = selectedWord.word,
+                        definition = selectedWordDefinition
                     )
+                }
+                // When image is captured but no word is selected, show tap instruction
+                hasStrangeWords -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.tap_word_explanation),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                // When no strange words are found
+                else -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.no_strange_words_guidance),
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
