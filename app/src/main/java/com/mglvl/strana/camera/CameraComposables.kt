@@ -203,6 +203,9 @@ fun CameraPreview(
 
     // State to hold the captured image bitmap
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    
+    // State to indicate text recognition is in progress
+    var isRecognizingText by remember { mutableStateOf(false) }
 
     // State to hold container size for scaling calculations
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
@@ -310,11 +313,23 @@ fun CameraPreview(
                     }
                 }
                 
+                // Show loading indicator while text recognition is in progress
+                if (isRecognizingText) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(16.dp)
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                
                 // Position the button at the bottom right when showing captured image
                 Button(
                     onClick = {
                         capturedBitmap = null
                         wordsWithBounds = emptyList()
+                        isRecognizingText = false
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -379,9 +394,13 @@ fun CameraPreview(
                                         override fun onCaptureSuccess(imageProxy: ImageProxy) {
                                             Log.d("CameraActivity", "Image captured successfully")
 
-                                            // Convert the captured image to bitmap and store it
+                                            // Convert the captured image to bitmap and store it immediately
                                             val scaledBitmap = imageProxy.toScaledBitmap()
                                             capturedBitmap = scaledBitmap
+                                            isScanning = false
+                                            
+                                            // Set text recognition in progress
+                                            isRecognizingText = true
 
                                             val image = imageProxy.image
                                             if (image != null) {
@@ -479,8 +498,8 @@ fun CameraPreview(
                                                             )
                                                         }
 
-                                                        // Only reset scanning state, keep the bitmap
-                                                        isScanning = false
+                                                        // Text recognition is complete
+                                                        isRecognizingText = false
                                                     }
                                                     .addOnFailureListener { e ->
                                                         Log.e(
@@ -488,13 +507,11 @@ fun CameraPreview(
                                                             "Text recognition failed",
                                                             e
                                                         )
-                                                        isScanning = false
-                                                        // Keep the bitmap even on failure
+                                                        isRecognizingText = false
                                                     }
                                             } else {
                                                 Log.e("CameraActivity", "Image is null")
-                                                isScanning = false
-                                                capturedBitmap = null
+                                                isRecognizingText = false
                                             }
 
                                             // Close the image to release resources
@@ -504,7 +521,6 @@ fun CameraPreview(
                                         override fun onError(exception: ImageCaptureException) {
                                             Log.e("CameraActivity", "Image capture failed", exception)
                                             isScanning = false
-                                            capturedBitmap = null
                                         }
                                     }
                                 )
