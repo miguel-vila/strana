@@ -11,4 +11,9 @@
     <string name="camera_guidance">Point your camera to some text and click scan!</string>
     <string name="no_strange_words">No unusual words found</string>
     <string name="no_strange_words_guidance">Try scanning a different text with more complex vocabulary</string>
+    <string name="saved_words">Saved Words</string>
+    <string name="no_saved_words">No saved words yet</string>
+    <string name="save_word">Save</string>
+    <string name="word_saved">Word saved!</string>
+    <string name="delete_word">Delete</string>
 </resources>

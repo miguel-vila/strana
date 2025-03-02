@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -16,6 +17,7 @@ import com.mglvl.strana.camera.CameraScreen
 import com.mglvl.strana.camera.StrangeWordConfig
 import com.mglvl.strana.dictionary.DictionaryApiClient
 import com.mglvl.strana.ui.theme.StranaTheme
+import com.mglvl.strana.viewmodel.SavedWordsViewModel
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import kotlinx.coroutines.Job
@@ -24,6 +26,7 @@ class CameraActivity : ComponentActivity() {
     private lateinit var cameraExecutor: ExecutorService
     private var imageCapturingJob: Job? = null
     private val dictionaryApiClient = DictionaryApiClient()
+    private val savedWordsViewModel: SavedWordsViewModel by viewModels()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -59,7 +62,8 @@ class CameraActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     CameraScreen(
                         modifier = Modifier.padding(innerPadding),
-                        dictionaryApiClient = dictionaryApiClient
+                        dictionaryApiClient = dictionaryApiClient,
+                        savedWordsViewModel = savedWordsViewModel
                     )
                 }
             }

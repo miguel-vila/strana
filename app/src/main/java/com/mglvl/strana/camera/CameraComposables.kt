@@ -16,22 +16,34 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,23 +65,36 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.mglvl.strana.R
 import com.mglvl.strana.dictionary.DictionaryApiClient
 import com.mglvl.strana.dictionary.WordDefinition
+import com.mglvl.strana.viewmodel.SavedWordsViewModel
 import edu.stanford.nlp.pipeline.StanfordCoreNLP
 import java.util.Properties
+import kotlinx.coroutines.launch
 
 @Composable
 fun CameraScreen(
     modifier: Modifier = Modifier,
-    dictionaryApiClient: DictionaryApiClient
+    dictionaryApiClient: DictionaryApiClient,
+    savedWordsViewModel: SavedWordsViewModel = viewModel()
 ) {
     // State for selected word and its definition
     var selectedWord by remember { mutableStateOf<Word?>(null) }
     var selectedWordDefinition by remember { mutableStateOf<WordDefinition?>(null) }
+    
+    // State to track if the selected word is saved
+    var isWordSaved by remember { mutableStateOf(false) }
+    
+    // Coroutine scope for launching coroutines
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Snackbar host state for showing messages
+    val snackbarHostState = remember { SnackbarHostState() }
     
     // Shared state for recognized words
     var recognizedWords by remember { mutableStateOf<List<Word>>(emptyList()) }
@@ -77,44 +102,81 @@ fun CameraScreen(
     // State to track if camera is active (no image captured yet)
     var isCameraActive by remember { mutableStateOf(true) }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        // Camera preview takes up the top 75%
-        CameraPreview(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.75f),
-            onWordsRecognized = { words ->
-                recognizedWords = words
-            },
-            onWordSelected = { word ->
-                selectedWord = word
-                selectedWordDefinition = null // Reset definition when new word is selected
-                
-                // Fetch definition for the selected word
-                dictionaryApiClient.getDefinition(word.word) { definition ->
-                    selectedWordDefinition = definition
-                }
-            },
-            onCameraStateChanged = { isActive ->
-                isCameraActive = isActive
-                // Reset word selection when returning to camera
-                if (isActive) {
-                    selectedWord = null
-                    selectedWordDefinition = null
-                }
-            }
-        )
+    // Check if the selected word is saved
+    LaunchedEffect(selectedWord) {
+        if (selectedWord != null) {
+            isWordSaved = savedWordsViewModel.isWordSaved(selectedWord!!.word)
+        }
+    }
 
-        // Words and definitions area takes up the bottom 40%
-        WordsAndDefinitionsArea(
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Camera preview takes up the top 75%
+            CameraPreview(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.75f),
+                onWordsRecognized = { words ->
+                    recognizedWords = words
+                },
+                onWordSelected = { word ->
+                    selectedWord = word
+                    selectedWordDefinition = null // Reset definition when new word is selected
+                    
+                    // Fetch definition for the selected word
+                    dictionaryApiClient.getDefinition(word.word) { definition ->
+                        selectedWordDefinition = definition
+                    }
+                    
+                    // Check if the word is saved
+                    coroutineScope.launch {
+                        isWordSaved = savedWordsViewModel.isWordSaved(word.word)
+                    }
+                },
+                onCameraStateChanged = { isActive ->
+                    isCameraActive = isActive
+                    // Reset word selection when returning to camera
+                    if (isActive) {
+                        selectedWord = null
+                        selectedWordDefinition = null
+                    }
+                },
+                savedWordsViewModel = savedWordsViewModel
+            )
+
+            // Words and definitions area takes up the bottom 40%
+            WordsAndDefinitionsArea(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.4f),
+                selectedWord = selectedWord,
+                selectedWordDefinition = selectedWordDefinition,
+                isCameraActive = isCameraActive,
+                hasStrangeWords = recognizedWords.any { StrangeWordConfig.isStrange(it.word) },
+                isWordSaved = isWordSaved,
+                onSaveWord = { word, definition ->
+                    savedWordsViewModel.saveWord(word, definition ?: "")
+                    isWordSaved = true
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar(
+                            message = "Word saved!"
+                        )
+                    }
+                }
+            )
+        }
+        
+        // Snackbar host at the bottom of the screen
+        SnackbarHost(
+            hostState = snackbarHostState,
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.4f),
-            selectedWord = selectedWord,
-            selectedWordDefinition = selectedWordDefinition,
-            isCameraActive = isCameraActive,
-            hasStrangeWords = recognizedWords.any { StrangeWordConfig.isStrange(it.word) }
-        )
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
+        ) { snackbarData ->
+            Snackbar(
+                snackbarData = snackbarData
+            )
+        }
     }
 }
 
@@ -123,10 +185,12 @@ fun CameraPreview(
     modifier: Modifier = Modifier,
     onWordsRecognized: (List<Word>) -> Unit,
     onWordSelected: (Word) -> Unit,
-    onCameraStateChanged: (Boolean) -> Unit
+    onCameraStateChanged: (Boolean) -> Unit,
+    savedWordsViewModel: SavedWordsViewModel
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Create a remembered ImageCapture instance that persists across recompositions
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -145,6 +209,9 @@ fun CameraPreview(
 
     // State to hold the recognized words with their bounding boxes
     var wordsWithBounds by remember { mutableStateOf<List<Word>>(emptyList()) }
+    
+    // State to hold saved words status
+    var savedWordsStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 
     // State to track the scaling factor applied to the original image
     var inputImageWidth by remember { mutableStateOf(1f) }
@@ -225,9 +292,16 @@ fun CameraPreview(
                             val width = (rect.right - rect.left).toFloat() * widthScalingFactor
                             val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
 
+                            // Determine color based on saved status
+                            val borderColor = if (savedWordsStatus[word.word] == true) {
+                                Color.Green  // Green for saved words
+                            } else {
+                                Color.Red    // Red for unsaved words
+                            }
+
                             // Draw rectangle around the word
                             drawRect(
-                                color = Color.Red,
+                                color = borderColor,
                                 topLeft = Offset(left, top),
                                 size = Size(width, height),
                                 style = Stroke(width = 5f) // Increased width for better visibility
@@ -380,6 +454,15 @@ fun CameraPreview(
                                                             // Pass the recognized words to the callback
                                                             onWordsRecognized(words)
 
+                                                            // Check which words are saved
+                                                            coroutineScope.launch {
+                                                                val savedStatus = mutableMapOf<String, Boolean>()
+                                                                words.forEach { word ->
+                                                                    savedStatus[word.word] = savedWordsViewModel.isWordSaved(word.word)
+                                                                }
+                                                                savedWordsStatus = savedStatus
+                                                            }
+
                                                             // Log summary of words with bounds
                                                             val wordsWithValidBounds =
                                                                 words.count { it.bounds != null }
@@ -456,7 +539,9 @@ fun WordsAndDefinitionsArea(
     selectedWord: Word?,
     selectedWordDefinition: WordDefinition?,
     isCameraActive: Boolean,
-    hasStrangeWords: Boolean
+    hasStrangeWords: Boolean,
+    isWordSaved: Boolean = false,
+    onSaveWord: (String, String?) -> Unit = { _, _ -> }
 ) {
     Surface(
         modifier = modifier,
@@ -505,7 +590,11 @@ fun WordsAndDefinitionsArea(
                 selectedWord != null -> {
                     WordDefinitionCard(
                         word = selectedWord.word,
-                        definition = selectedWordDefinition
+                        definition = selectedWordDefinition,
+                        isWordSaved = isWordSaved,
+                        onSaveWord = { word, definition ->
+                            onSaveWord(word, definition)
+                        }
                     )
                 }
                 // When image is captured but no word is selected, show tap instruction
@@ -548,18 +637,43 @@ fun WordsAndDefinitionsArea(
 @Composable
 fun WordDefinitionCard(
     word: String,
-    definition: WordDefinition?
+    definition: WordDefinition?,
+    isWordSaved: Boolean = false,
+    onSaveWord: (String, String?) -> Unit = { _, _ -> }
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-                text = word,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold
-            )
+            // Word header with save button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = word,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                // Save/bookmark button
+                IconButton(
+                    onClick = { 
+                        if (!isWordSaved) {
+                            onSaveWord(word, definition?.definition)
+                        }
+                    },
+                    enabled = !isWordSaved
+                ) {
+                    Icon(
+                        imageVector = if (isWordSaved) Icons.Default.Check else Icons.Default.Add,
+                        contentDescription = if (isWordSaved) "Word saved" else "Save word",
+                        tint = if (isWordSaved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 

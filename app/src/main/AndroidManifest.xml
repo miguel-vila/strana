@@ -35,6 +35,11 @@
             android:name=".CameraActivity"
             android:exported="false"
             android:theme="@style/Theme.Strana" />
+            
+        <activity
+            android:name=".SavedWordsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Strana" />
     </application>
 
 </manifest>
