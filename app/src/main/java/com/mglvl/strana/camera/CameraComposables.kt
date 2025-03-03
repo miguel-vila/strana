@@ -678,6 +678,7 @@ fun WordDefinitionCard(
                 IconButton(
                     onClick = { 
                         if (!isWordSaved) {
+                            // Pass the first definition for backward compatibility
                             onSaveWord(word, definition?.definition)
                         }
                     },
@@ -706,7 +707,7 @@ fun WordDefinitionCard(
                         strokeWidth = 2.dp
                     )
                 }
-            } else if (definition.definition == null) {
+            } else if (definition.definitions == null || definition.definitions.isEmpty()) {
                 // Show error message in red when definition is not found (404)
                 Text(
                     text = "Meaning couldn't be found",
@@ -714,22 +715,37 @@ fun WordDefinitionCard(
                     color = colorResource(id = R.color.red)
                 )
             } else {
-                // Show part of speech if available
-                definition.partOfSpeech?.let { pos ->
+                // Show all definitions grouped by part of speech
+                definition.definitions.forEach { definitionItem ->
+                    // Part of speech header
                     Text(
-                        text = pos,
+                        text = definitionItem.partOfSpeech,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    
                     Spacer(modifier = Modifier.height(4.dp))
+                    
+                    // Definition
+                    Text(
+                        text = definitionItem.definition,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    
+                    // Example if available
+                    definitionItem.example?.let { example ->
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Example: \"$example\"",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
-
-                // Show definition
-                Text(
-                    text = definition.definition,
-                    style = MaterialTheme.typography.bodyMedium
-                )
             }
         }
     }

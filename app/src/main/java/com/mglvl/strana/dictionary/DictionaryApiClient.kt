@@ -56,13 +56,28 @@ data class DictionaryApiError(
 )
 
 /**
+ * Data class to hold a single definition with its part of speech
+ */
+data class DefinitionItem(
+    val partOfSpeech: String,
+    val definition: String,
+    val example: String? = null
+)
+
+/**
  * Simple data class to hold the extracted definition information
  */
 data class WordDefinition(
     val word: String,
-    val partOfSpeech: String?,
+    val definitions: List<DefinitionItem>? = null
+) {
+    // For backward compatibility
+    val partOfSpeech: String?
+        get() = definitions?.firstOrNull()?.partOfSpeech
+    
     val definition: String?
-)
+        get() = definitions?.firstOrNull()?.definition
+}
 
 /**
  * Retrofit interface for the Dictionary API
@@ -99,38 +114,44 @@ class DictionaryApiClient {
                     val entries = response.body()
                     if (entries != null && entries.isNotEmpty()) {
                         val entry = entries[0]
-                        val meaning = entry.meanings.firstOrNull()
-                        val definition = meaning?.definitions?.firstOrNull()?.definition
+                        
+                        // Extract all definitions from all meanings
+                        val definitionItems = entry.meanings.flatMap { meaning ->
+                            meaning.definitions.take(1).map { def ->
+                                DefinitionItem(
+                                    partOfSpeech = meaning.partOfSpeech,
+                                    definition = def.definition,
+                                    example = def.example
+                                )
+                            }
+                        }
                         
                         callback(
                             WordDefinition(
                                 word = entry.word,
-                                partOfSpeech = meaning?.partOfSpeech,
-                                definition = definition
+                                definitions = definitionItems
                             )
                         )
                     } else {
                         callback(null)
                     }
                 } else {
-                    // 404 or other error - return WordDefinition with null definition
+                    // 404 or other error - return WordDefinition with null definitions
                     callback(
                         WordDefinition(
                             word = word,
-                            partOfSpeech = null,
-                            definition = null
+                            definitions = null
                         )
                     )
                 }
             }
 
             override fun onFailure(call: Call<List<DictionaryEntry>>, t: Throwable) {
-                // Network error or other failure - return WordDefinition with null definition
+                // Network error or other failure - return WordDefinition with null definitions
                 callback(
                     WordDefinition(
                         word = word,
-                        partOfSpeech = null,
-                        definition = null
+                        definitions = null
                     )
                 )
             }
