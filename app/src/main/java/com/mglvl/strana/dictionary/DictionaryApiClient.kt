@@ -8,6 +8,7 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Path
+import android.util.Log
 
 /**
  * Data classes for parsing the Dictionary API response
@@ -105,6 +106,9 @@ class DictionaryApiClient {
      * @param callback Callback to handle the result
      */
     fun getDefinition(word: String, callback: (WordDefinition?) -> Unit) {
+        // Log the word being looked up
+        Log.d("DictionaryApiClient", "Looking up definition for: $word")
+        
         service.getDefinition(word).enqueue(object : Callback<List<DictionaryEntry>> {
             override fun onResponse(
                 call: Call<List<DictionaryEntry>>,
@@ -148,6 +152,7 @@ class DictionaryApiClient {
 
             override fun onFailure(call: Call<List<DictionaryEntry>>, t: Throwable) {
                 // Network error or other failure - return WordDefinition with null definitions
+                Log.e("DictionaryApiClient", "Error looking up definition for $word", t)
                 callback(
                     WordDefinition(
                         word = word,

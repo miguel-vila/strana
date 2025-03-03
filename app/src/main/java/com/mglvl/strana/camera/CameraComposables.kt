@@ -76,6 +76,16 @@ import com.mglvl.strana.viewmodel.SavedWordsViewModel
 import edu.stanford.nlp.pipeline.StanfordCoreNLP
 import java.util.Properties
 import kotlinx.coroutines.launch
+import org.apache.lucene.analysis.hunspell.Dictionary
+import org.apache.lucene.analysis.hunspell.Hunspell
+import org.apache.lucene.store.Directory
+import org.apache.lucene.store.FSDirectory
+import org.apache.lucene.store.NIOFSDirectory
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
+import java.nio.file.Path
+import java.nio.file.Paths
 
 @Composable
 fun CameraScreen(
@@ -124,7 +134,7 @@ fun CameraScreen(
                     selectedWordDefinition = null // Reset definition when new word is selected
                     
                     // Fetch definition for the selected word
-                    dictionaryApiClient.getDefinition(word.word) { definition ->
+                    dictionaryApiClient.getDefinition(word.spellcheckedWord ?: word.word) { definition ->
                         selectedWordDefinition = definition
                     }
                     
@@ -220,6 +230,26 @@ fun CameraPreview(
     var inputImageWidth by remember { mutableStateOf(1f) }
     var inputImageHeight by remember { mutableStateOf(1f) }
 
+    // Initialize Hunspell for spell checking
+    val hunspell = remember {
+        try {
+            // Create temporary files for the dictionary and affix files
+            val tempDirFile = File(context.cacheDir, "hunspell_temp")
+            if (!tempDirFile.exists()) {
+                tempDirFile.mkdirs()
+            }
+            val tempDir: Directory = FSDirectory.open(tempDirFile.toPath())
+
+            val dictionary = Dictionary(tempDir, "hunspell_",  context.assets.open("en_US.aff"),
+                context.assets.open("en_US.dic"))
+            // Create Hunspell instance
+            Hunspell(dictionary)
+        } catch (e: Exception) {
+            Log.e("Hunspell", "Error initializing Hunspell", e)
+            throw e
+        }
+    }
+
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
     val pipeline = StanfordCoreNLP(props)
@@ -239,76 +269,84 @@ fun CameraPreview(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Draw bounding boxes overlay with touch detection
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pointerInput(wordsWithBounds) {
-                            detectTapGestures { tapOffset ->
-                                // Calculate scale factors for touch coordinates
-                                val widthScalingFactor = size.width / inputImageWidth
-                                val heightScalingFactor = size.height / inputImageHeight
+                // Only show bounding boxes if we have recognized words
+                if (wordsWithBounds.isNotEmpty()) {
+                    // Draw bounding boxes overlay with touch detection
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(wordsWithBounds) {
+                                detectTapGestures { tapOffset ->
+                                    // Calculate scale factors for touch coordinates
+                                    val widthScalingFactor = size.width / inputImageWidth
+                                    val heightScalingFactor = size.height / inputImageHeight
 
-                                // Check if the tap is inside any word bounding box
-                                val strangeWords = wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
+                                    // Check if the tap is inside any word bounding box
+                                    val strangeWords = wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
 
-                                var wordSelected = false
-                                for (word in strangeWords) {
-                                    if (wordSelected) break
-                                    word.bounds?.let { rect ->
-                                        val left = rect.left.toFloat() * widthScalingFactor
-                                        val top = rect.top.toFloat() * heightScalingFactor
-                                        val width = (rect.right - rect.left).toFloat() * widthScalingFactor
-                                        val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+                                    var wordSelected = false
+                                    for (word in strangeWords) {
+                                        if (wordSelected) break
+                                        word.bounds?.let { rect ->
+                                            val left = rect.left.toFloat() * widthScalingFactor
+                                            val top = rect.top.toFloat() * heightScalingFactor
+                                            val width = (rect.right - rect.left).toFloat() * widthScalingFactor
+                                            val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
 
-                                        // Create a Compose Rect for easier hit testing
-                                        val wordRect = Rect(left, top, left + width, top + height)
+                                            // Create a Compose Rect for easier hit testing
+                                            val wordRect = Rect(left, top, left + width, top + height)
 
-                                        if (wordRect.contains(tapOffset)) {
-                                            onWordSelected(word)
-                                            wordSelected = true
+                                            if (wordRect.contains(tapOffset)) {
+                                                onWordSelected(word)
+                                                wordSelected = true
+                                                
+                                                // If the word has a spellchecked version, log it
+                                                if (word.spellcheckedWord != null) {
+                                                    Log.d("WordSelection", "Selected word '${word.word}' has spellchecked version '${word.spellcheckedWord}'")
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                ) {
-                    // Calculate scale factors for bounding boxes
-                    val bitmap = capturedBitmap ?: return@Canvas
-                    val widthScalingFactor = size.width / inputImageWidth
-                    val heightScalingFactor = size.height / inputImageHeight
+                    ) {
+                        // Calculate scale factors for bounding boxes
+                        val bitmap = capturedBitmap ?: return@Canvas
+                        val widthScalingFactor = size.width / inputImageWidth
+                        val heightScalingFactor = size.height / inputImageHeight
 
-                    Log.d(
-                        "Canvas",
-                        "Drawing canvas overlay. Image size: ${bitmap.width}x${bitmap.height}, " +
-                                "Canvas size: ${size.width}x${size.height}, Scale: $widthScalingFactor, $heightScalingFactor"
-                    )
+                        Log.d(
+                            "Canvas",
+                            "Drawing canvas overlay. Image size: ${bitmap.width}x${bitmap.height}, " +
+                                    "Canvas size: ${size.width}x${size.height}, Scale: $widthScalingFactor, $heightScalingFactor"
+                        )
 
-                    // Draw rectangles around strange words
-                    val strangeWords =
-                        wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
+                        // Draw rectangles around strange words
+                        val strangeWords =
+                            wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
 
-                    strangeWords.forEach { word ->
-                        word.bounds?.let { rect ->
-                            val left = rect.left.toFloat() * widthScalingFactor
-                            val top = rect.top.toFloat() * heightScalingFactor
-                            val width = (rect.right - rect.left).toFloat() * widthScalingFactor
-                            val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+                        strangeWords.forEach { word ->
+                            word.bounds?.let { rect ->
+                                val left = rect.left.toFloat() * widthScalingFactor
+                                val top = rect.top.toFloat() * heightScalingFactor
+                                val width = (rect.right - rect.left).toFloat() * widthScalingFactor
+                                val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
 
-                            // Determine color based on saved status
-                            val borderColor = if (savedWordsStatus[word.word] == true) {
-                                Color.Green  // Green for saved words
-                            } else {
-                                Color.Red    // Red for unsaved words
+                                // Determine color based on saved status and spelling
+                                val borderColor = when {
+                                    savedWordsStatus[word.word] == true -> Color.Green  // Green for saved words
+                                    !word.isSpelledCorrectly -> Color.Yellow  // Yellow for misspelled words
+                                    else -> Color.Red  // Red for unsaved words
+                                }
+
+                                // Draw rectangle around the word
+                                drawRect(
+                                    color = borderColor,
+                                    topLeft = Offset(left, top),
+                                    size = Size(width, height),
+                                    style = Stroke(width = 5f) // Increased width for better visibility
+                                )
                             }
-
-                            // Draw rectangle around the word
-                            drawRect(
-                                color = borderColor,
-                                topLeft = Offset(left, top),
-                                size = Size(width, height),
-                                style = Stroke(width = 5f) // Increased width for better visibility
-                            )
                         }
                     }
                 }
@@ -436,18 +474,32 @@ fun CameraPreview(
                                                             pipeline.processToCoreDocument(result.text)
                                                         val words = document.tokens().map { token ->
                                                             // Create Word objects with bounds from the map
+
                                                             val tokenWord = token.word()
+                                                            
+                                                            // Spell check word using Hunspell
+                                                            val isCorrect = hunspell.spell(tokenWord)
+                                                            val suggestions = if (!isCorrect && tokenWord.length > 1) {
+                                                                hunspell.suggest(tokenWord).toList()
+                                                            } else {
+                                                                emptyList()
+                                                            }
+                                                            val overriddenWord = if(!isCorrect && suggestions.isNotEmpty()) suggestions.get(0) else null
+                                                            
                                                             val bounds = wordBoundsMap[tokenWord]
 
                                                             Log.d(
                                                                 "WordMapping",
-                                                                "Token: '$tokenWord', bounds: $bounds"
+                                                                "Token: '$tokenWord', bounds: $bounds, isCorrect: $isCorrect, suggestions: $suggestions"
                                                             )
 
                                                             Word(
                                                                 word = tokenWord,
+                                                                spellcheckedWord = overriddenWord,
                                                                 posTag = token.tag(),
-                                                                bounds = bounds
+                                                                bounds = bounds,
+                                                                isSpelledCorrectly = isCorrect,
+                                                                suggestions = suggestions
                                                             )
                                                         }.filter { w: Word ->
                                                             !setOf(
@@ -604,13 +656,17 @@ fun WordsAndDefinitionsArea(
                 }
                 // When a word is selected, show its definition
                 selectedWord != null -> {
+                    // Use the word to look up (either original or spellchecked)
+                    val wordToLookup = selectedWord.spellcheckedWord ?: selectedWord.word
+                    
                     WordDefinitionCard(
-                        word = selectedWord.word,
+                        word = wordToLookup,
                         definition = selectedWordDefinition,
                         isWordSaved = isWordSaved,
                         onSaveWord = { word, definition ->
                             onSaveWord(word, definition)
-                        }
+                        },
+                        selectedWord = selectedWord
                     )
                 }
                 // When image is captured but no word is selected, show tap instruction
@@ -655,7 +711,8 @@ fun WordDefinitionCard(
     word: String,
     definition: WordDefinition?,
     isWordSaved: Boolean = false,
-    onSaveWord: (String, String?) -> Unit = { _, _ -> }
+    onSaveWord: (String, String?) -> Unit = { _, _ -> },
+    selectedWord: Word? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -667,19 +724,32 @@ fun WordDefinitionCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = word,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    // Display the word (or spellchecked version if available)
+                    Text(
+                        text = selectedWord?.spellcheckedWord ?: word,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    // If this is a spellchecked word, show the original below it
+                    if (selectedWord?.spellcheckedWord != null && selectedWord.spellcheckedWord != selectedWord.word) {
+                        Text(
+                            text = "(corrected from: ${selectedWord.word})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colorResource(id = R.color.red),
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+                }
                 
                 // Save/bookmark button
                 IconButton(
                     onClick = { 
                         if (!isWordSaved) {
-                            // Pass the first definition for backward compatibility
-                            onSaveWord(word, definition?.definition)
+                            // Use the spellchecked word if available
+                            val wordToSave = selectedWord?.spellcheckedWord ?: word
+                            onSaveWord(wordToSave, definition?.definition)
                         }
                     },
                     enabled = !isWordSaved

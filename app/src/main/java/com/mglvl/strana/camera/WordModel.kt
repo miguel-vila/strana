@@ -8,8 +8,11 @@ import java.nio.ByteBuffer
 
 data class Word(
     val word: String,
+    val spellcheckedWord: String?,
     val posTag: String,
-    val bounds: android.graphics.Rect? = null
+    val bounds: android.graphics.Rect? = null,
+    val isSpelledCorrectly: Boolean = true,
+    val suggestions: List<String> = emptyList()
 )
 
 // Helper function to convert ImageProxy to Bitmap

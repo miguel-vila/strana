@@ -46,6 +46,9 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/LICENSE.md"
+            excludes += "META-INF/LICENSE-notice.md"
+            excludes += "META-INF/DEPENDENCIES"
         }
     }
 }
@@ -87,10 +90,14 @@ dependencies {
     implementation("ru.gildor.coroutines:kotlin-coroutines-retrofit:1.1.0")
     implementation("com.google.code.gson:gson:2.10.1")
 
-    // CoreNLP
+    // Lucene - add this first so it takes precedence
+    implementation("org.apache.lucene:lucene-analyzers-common:8.11.4")
+    implementation("org.apache.lucene:lucene-queryparser:8.11.4") // Add this to override the older version
+    implementation("org.apache.lucene:lucene-sandbox:8.11.4") // Add this to override the older version
+
+    // CoreNLP - with exclusions for Lucene dependencies
     implementation("edu.stanford.nlp:stanford-corenlp:4.5.8")
     implementation("edu.stanford.nlp:stanford-corenlp:1.0.4:models")
-
 
     // Testing dependencies
     testImplementation(libs.junit)

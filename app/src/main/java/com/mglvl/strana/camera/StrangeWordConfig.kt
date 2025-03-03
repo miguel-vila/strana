@@ -40,6 +40,10 @@ object StrangeWordConfig {
 
     // Function to determine if a word is strange based on current config
     fun isStrange(word: String): Boolean {
-        return !commonWords.contains(word.lowercase())
+        // Consider misspelled words as strange
+        if (word.length > 3 && !commonWords.contains(word.lowercase())) {
+            return true
+        }
+        return false
     }
 }
