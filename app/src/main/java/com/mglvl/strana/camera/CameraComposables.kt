@@ -11,9 +11,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -47,14 +44,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.colorResource
@@ -80,12 +70,7 @@ import org.apache.lucene.analysis.hunspell.Dictionary
 import org.apache.lucene.analysis.hunspell.Hunspell
 import org.apache.lucene.store.Directory
 import org.apache.lucene.store.FSDirectory
-import org.apache.lucene.store.NIOFSDirectory
 import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.nio.file.Path
-import java.nio.file.Paths
 
 @Composable
 fun CameraScreen(
@@ -261,7 +246,7 @@ fun CameraPreview(
     // Update camera state whenever capturedBitmap changes
     onCameraStateChanged(capturedBitmap == null)
 
-    Box(modifier = modifier.onSizeChanged { containerSize = it }) {
+    Box(modifier = modifier.fillMaxSize()) {
         // Show either the camera preview or the captured image
         if (capturedBitmap != null) {
             // Show the frozen image with bounding boxes
@@ -273,95 +258,15 @@ fun CameraPreview(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Only show bounding boxes if we have recognized words
-                if (wordsWithBounds.isNotEmpty()) {
-                    // Draw bounding boxes overlay with touch detection
-                    Canvas(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(wordsWithBounds) {
-                                detectTapGestures { tapOffset ->
-                                    // Calculate scale factors for touch coordinates
-                                    val widthScalingFactor = size.width / inputImageWidth
-                                    val heightScalingFactor = size.height / inputImageHeight
-
-                                    // Check if the tap is inside any word bounding box
-                                    val strangeWords =
-                                        wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
-
-                                    var wordSelected = false
-                                    for (word in strangeWords) {
-                                        if (wordSelected) break
-                                        word.bounds?.let { rect ->
-                                            val left = rect.left.toFloat() * widthScalingFactor
-                                            val top = rect.top.toFloat() * heightScalingFactor
-                                            val width =
-                                                (rect.right - rect.left).toFloat() * widthScalingFactor
-                                            val height =
-                                                (rect.bottom - rect.top).toFloat() * heightScalingFactor
-
-                                            // Create a Compose Rect for easier hit testing
-                                            val wordRect =
-                                                Rect(left, top, left + width, top + height)
-
-                                            if (wordRect.contains(tapOffset)) {
-                                                onWordSelected(word)
-                                                wordSelected = true
-
-                                                // If the word has a spellchecked version, log it
-                                                if (word.spellcheckedWord != null) {
-                                                    Log.d(
-                                                        "WordSelection",
-                                                        "Selected word '${word.word}' has spellchecked version '${word.spellcheckedWord}'"
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                    ) {
-                        // Calculate scale factors for bounding boxes
-                        val bitmap = capturedBitmap ?: return@Canvas
-                        val widthScalingFactor = size.width / inputImageWidth
-                        val heightScalingFactor = size.height / inputImageHeight
-
-                        Log.d(
-                            "Canvas",
-                            "Drawing canvas overlay. Image size: ${bitmap.width}x${bitmap.height}, " +
-                                    "Canvas size: ${size.width}x${size.height}, Scale: $widthScalingFactor, $heightScalingFactor"
-                        )
-
-                        // Draw rectangles around strange words
-                        val strangeWords =
-                            wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
-
-                        strangeWords.forEach { word ->
-                            word.bounds?.let { rect ->
-                                val left = rect.left.toFloat() * widthScalingFactor
-                                val top = rect.top.toFloat() * heightScalingFactor
-                                val width = (rect.right - rect.left).toFloat() * widthScalingFactor
-                                val height =
-                                    (rect.bottom - rect.top).toFloat() * heightScalingFactor
-
-                                // Determine color based on saved status and spelling
-                                val borderColor = when {
-                                    savedWordsStatus[word.word] == true -> Color.Green  // Green for saved words
-                                    !word.isSpelledCorrectly -> Color.Yellow  // Yellow for misspelled words
-                                    else -> Color.Red  // Red for unsaved words
-                                }
-
-                                // Draw rectangle around the word
-                                drawRect(
-                                    color = borderColor,
-                                    topLeft = Offset(left, top),
-                                    size = Size(width, height),
-                                    style = Stroke(width = 5f) // Increased width for better visibility
-                                )
-                            }
-                        }
-                    }
-                }
+                // Use the refactored WordBoundingBoxOverlay component
+                WordBoundingBoxOverlay(
+                    modifier = Modifier.fillMaxSize(),
+                    words = wordsWithBounds,
+                    inputImageWidth = inputImageWidth,
+                    inputImageHeight = inputImageHeight,
+                    savedWordsStatus = savedWordsStatus,
+                    onWordSelected = onWordSelected
+                )
 
                 // Show loading indicator while text recognition is in progress
                 if (isRecognizingText) {
