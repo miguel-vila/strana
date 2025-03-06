@@ -16,4 +16,14 @@
     <string name="save_word">Save</string>
     <string name="word_saved">Word saved!</string>
     <string name="delete_word">Delete</string>
+    
+    <!-- Data Collection Strings -->
+    <string name="collect_word_data">Collect Word Data</string>
+    <string name="scan_again">Scan Again</string>
+    <string name="save_results">Save Results</string>
+    <string name="edit_word">Edit Word</string>
+    <string name="mark_as_strange">Mark as strange word</string>
+    <string name="export_data">Export Data</string>
+    <string name="collection_results">Collection Results</string>
+    <string name="data_collection_help">Data Collection Help</string>
 </resources>
