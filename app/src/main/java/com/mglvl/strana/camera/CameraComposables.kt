@@ -96,19 +96,19 @@ fun CameraScreen(
     // State for selected word and its definition
     var selectedWord by remember { mutableStateOf<Word?>(null) }
     var selectedWordDefinition by remember { mutableStateOf<WordDefinition?>(null) }
-    
+
     // State to track if the selected word is saved
     var isWordSaved by remember { mutableStateOf(false) }
-    
+
     // Coroutine scope for launching coroutines
     val coroutineScope = rememberCoroutineScope()
-    
+
     // Snackbar host state for showing messages
     val snackbarHostState = remember { SnackbarHostState() }
-    
+
     // Shared state for recognized words
     var recognizedWords by remember { mutableStateOf<List<Word>>(emptyList()) }
-    
+
     // State to track if camera is active (no image captured yet)
     var isCameraActive by remember { mutableStateOf(true) }
 
@@ -132,12 +132,14 @@ fun CameraScreen(
                 onWordSelected = { word ->
                     selectedWord = word
                     selectedWordDefinition = null // Reset definition when new word is selected
-                    
+
                     // Fetch definition for the selected word
-                    dictionaryApiClient.getDefinition(word.spellcheckedWord ?: word.word) { definition ->
+                    dictionaryApiClient.getDefinition(
+                        word.spellcheckedWord ?: word.word
+                    ) { definition ->
                         selectedWordDefinition = definition
                     }
-                    
+
                     // Check if the word is saved
                     coroutineScope.launch {
                         isWordSaved = savedWordsViewModel.isWordSaved(word.word)
@@ -175,7 +177,7 @@ fun CameraScreen(
                 }
             )
         }
-        
+
         // Snackbar host at the bottom of the screen
         SnackbarHost(
             hostState = snackbarHostState,
@@ -213,7 +215,7 @@ fun CameraPreview(
 
     // State to hold the captured image bitmap
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    
+
     // State to indicate text recognition is in progress
     var isRecognizingText by remember { mutableStateOf(false) }
 
@@ -222,7 +224,7 @@ fun CameraPreview(
 
     // State to hold the recognized words with their bounding boxes
     var wordsWithBounds by remember { mutableStateOf<List<Word>>(emptyList()) }
-    
+
     // State to hold saved words status
     var savedWordsStatus by remember { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
 
@@ -240,8 +242,10 @@ fun CameraPreview(
             }
             val tempDir: Directory = FSDirectory.open(tempDirFile.toPath())
 
-            val dictionary = Dictionary(tempDir, "hunspell_",  context.assets.open("en_US.aff"),
-                context.assets.open("en_US.dic"))
+            val dictionary = Dictionary(
+                tempDir, "hunspell_", context.assets.open("en_US.aff"),
+                context.assets.open("en_US.dic")
+            )
             // Create Hunspell instance
             Hunspell(dictionary)
         } catch (e: Exception) {
@@ -253,7 +257,7 @@ fun CameraPreview(
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
     val pipeline = StanfordCoreNLP(props)
-    
+
     // Update camera state whenever capturedBitmap changes
     onCameraStateChanged(capturedBitmap == null)
 
@@ -282,7 +286,8 @@ fun CameraPreview(
                                     val heightScalingFactor = size.height / inputImageHeight
 
                                     // Check if the tap is inside any word bounding box
-                                    val strangeWords = wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
+                                    val strangeWords =
+                                        wordsWithBounds.filter { StrangeWordConfig.isStrange(it.word) }
 
                                     var wordSelected = false
                                     for (word in strangeWords) {
@@ -290,19 +295,25 @@ fun CameraPreview(
                                         word.bounds?.let { rect ->
                                             val left = rect.left.toFloat() * widthScalingFactor
                                             val top = rect.top.toFloat() * heightScalingFactor
-                                            val width = (rect.right - rect.left).toFloat() * widthScalingFactor
-                                            val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+                                            val width =
+                                                (rect.right - rect.left).toFloat() * widthScalingFactor
+                                            val height =
+                                                (rect.bottom - rect.top).toFloat() * heightScalingFactor
 
                                             // Create a Compose Rect for easier hit testing
-                                            val wordRect = Rect(left, top, left + width, top + height)
+                                            val wordRect =
+                                                Rect(left, top, left + width, top + height)
 
                                             if (wordRect.contains(tapOffset)) {
                                                 onWordSelected(word)
                                                 wordSelected = true
-                                                
+
                                                 // If the word has a spellchecked version, log it
                                                 if (word.spellcheckedWord != null) {
-                                                    Log.d("WordSelection", "Selected word '${word.word}' has spellchecked version '${word.spellcheckedWord}'")
+                                                    Log.d(
+                                                        "WordSelection",
+                                                        "Selected word '${word.word}' has spellchecked version '${word.spellcheckedWord}'"
+                                                    )
                                                 }
                                             }
                                         }
@@ -330,7 +341,8 @@ fun CameraPreview(
                                 val left = rect.left.toFloat() * widthScalingFactor
                                 val top = rect.top.toFloat() * heightScalingFactor
                                 val width = (rect.right - rect.left).toFloat() * widthScalingFactor
-                                val height = (rect.bottom - rect.top).toFloat() * heightScalingFactor
+                                val height =
+                                    (rect.bottom - rect.top).toFloat() * heightScalingFactor
 
                                 // Determine color based on saved status and spelling
                                 val borderColor = when {
@@ -350,7 +362,7 @@ fun CameraPreview(
                         }
                     }
                 }
-                
+
                 // Show loading indicator while text recognition is in progress
                 if (isRecognizingText) {
                     Box(
@@ -361,7 +373,7 @@ fun CameraPreview(
                         CircularProgressIndicator()
                     }
                 }
-                
+
                 // Position the button at the bottom right when showing captured image
                 Button(
                     onClick = {
@@ -414,7 +426,7 @@ fun CameraPreview(
                         previewView
                     }
                 )
-                
+
                 // Position the scan button at the bottom right of the screen
                 Button(
                     onClick = {
@@ -436,7 +448,7 @@ fun CameraPreview(
                                             val scaledBitmap = imageProxy.toScaledBitmap()
                                             capturedBitmap = scaledBitmap
                                             isScanning = false
-                                            
+
                                             // Set text recognition in progress
                                             isRecognizingText = true
 
@@ -452,7 +464,8 @@ fun CameraPreview(
                                                 recognizer.process(inputImage)
                                                     .addOnSuccessListener { result ->
                                                         // Create a map to store word to bounding box mapping
-                                                        val wordBoundsMap = mutableMapOf<String, android.graphics.Rect>()
+                                                        val wordBoundsMap =
+                                                            mutableMapOf<String, android.graphics.Rect>()
 
                                                         // Extract text blocks, lines, and elements with their bounding boxes
                                                         for (block in result.textBlocks) {
@@ -464,7 +477,8 @@ fun CameraPreview(
                                                                             "TextRecognition",
                                                                             "Found element: '${element.text}' with bounds: $bounds"
                                                                         )
-                                                                        wordBoundsMap[element.text] = bounds
+                                                                        wordBoundsMap[element.text] =
+                                                                            bounds
                                                                     }
                                                                 }
                                                             }
@@ -476,16 +490,29 @@ fun CameraPreview(
                                                             // Create Word objects with bounds from the map
 
                                                             val tokenWord = token.word()
-                                                            
+
                                                             // Spell check word using Hunspell
-                                                            val isCorrect = hunspell.spell(tokenWord)
-                                                            val suggestions = if (!isCorrect && tokenWord.length > 1) {
-                                                                hunspell.suggest(tokenWord).toList()
-                                                            } else {
-                                                                emptyList()
-                                                            }
-                                                            val overriddenWord = if(!isCorrect && suggestions.isNotEmpty()) suggestions.get(0) else null
-                                                            
+                                                            val isCorrect =
+                                                                hunspell.spell(tokenWord)
+                                                            val suggestions =
+                                                                if (!isCorrect && tokenWord.length > 1) {
+                                                                    hunspell.suggest(tokenWord)
+                                                                        .toList()
+                                                                } else {
+                                                                    emptyList()
+                                                                }
+                                                            Log.d(
+                                                                "overriddenWord",
+                                                                "word: ${tokenWord}, suggestions: ${suggestions}"
+                                                            )
+                                                            val overriddenWord =
+                                                                if (suggestions.isNotEmpty())
+                                                                    suggestions.maxBy { w ->
+                                                                        StrangeWordConfig.getFreq(w)
+                                                                            ?: 0
+                                                                    }
+                                                                else null
+
                                                             val bounds = wordBoundsMap[tokenWord]
 
                                                             Log.d(
@@ -516,7 +543,9 @@ fun CameraPreview(
                                                             ).contains(w.posTag)
                                                         }
                                                             .filter { w: Word ->
-                                                                w.word.length > 2 && !w.word.contains(Regex("[0-9]"))
+                                                                w.word.length > 2 && !w.word.contains(
+                                                                    Regex("[0-9]")
+                                                                )
                                                             }
 
                                                         if (words.isNotEmpty()) {
@@ -527,9 +556,13 @@ fun CameraPreview(
 
                                                             // Check which words are saved
                                                             coroutineScope.launch {
-                                                                val savedStatus = mutableMapOf<String, Boolean>()
+                                                                val savedStatus =
+                                                                    mutableMapOf<String, Boolean>()
                                                                 words.forEach { word ->
-                                                                    savedStatus[word.word] = savedWordsViewModel.isWordSaved(word.word)
+                                                                    savedStatus[word.word] =
+                                                                        savedWordsViewModel.isWordSaved(
+                                                                            word.word
+                                                                        )
                                                                 }
                                                                 savedWordsStatus = savedStatus
                                                             }
@@ -571,7 +604,11 @@ fun CameraPreview(
                                         }
 
                                         override fun onError(exception: ImageCaptureException) {
-                                            Log.e("CameraActivity", "Image capture failed", exception)
+                                            Log.e(
+                                                "CameraActivity",
+                                                "Image capture failed",
+                                                exception
+                                            )
                                             isScanning = false
                                         }
                                     }
@@ -658,7 +695,7 @@ fun WordsAndDefinitionsArea(
                 selectedWord != null -> {
                     // Use the word to look up (either original or spellchecked)
                     val wordToLookup = selectedWord.spellcheckedWord ?: selectedWord.word
-                    
+
                     WordDefinitionCard(
                         word = wordToLookup,
                         definition = selectedWordDefinition,
@@ -731,7 +768,7 @@ fun WordDefinitionCard(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    
+
                     // If this is a spellchecked word, show the original below it
                     if (selectedWord?.spellcheckedWord != null && selectedWord.spellcheckedWord != selectedWord.word) {
                         Text(
@@ -742,10 +779,10 @@ fun WordDefinitionCard(
                         )
                     }
                 }
-                
+
                 // Save/bookmark button
                 IconButton(
-                    onClick = { 
+                    onClick = {
                         if (!isWordSaved) {
                             // Use the spellchecked word if available
                             val wordToSave = selectedWord?.spellcheckedWord ?: word
@@ -794,15 +831,15 @@ fun WordDefinitionCard(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    
+
                     Spacer(modifier = Modifier.height(4.dp))
-                    
+
                     // Definition
                     Text(
                         text = definitionItem.definition,
                         style = MaterialTheme.typography.bodyMedium
                     )
-                    
+
                     // Example if available
                     definitionItem.example?.let { example ->
                         Spacer(modifier = Modifier.height(2.dp))
@@ -813,7 +850,7 @@ fun WordDefinitionCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    
+
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }

@@ -5,6 +5,7 @@ import android.util.Log
 
 // Configuration for what makes a word "strange"
 object StrangeWordConfig {
+    private val wordsFreq = mutableMapOf<String, Int>()
     private val commonWords = mutableSetOf<String>()
     private const val TOP_WORDS_COUNT = 40_000
     private var isInitialized = false
@@ -19,12 +20,13 @@ object StrangeWordConfig {
             var count = 0
             reader.useLines { lines ->
                 lines.forEach { line ->
+                    val segments = line.split(" ")
+                    val word = segments.get(0).trim().lowercase()
+                    val freq = segments.get(1).trim().toInt()
+                    wordsFreq.set(word, freq)
                     if (count < TOP_WORDS_COUNT) {
-                        val word = line.split(" ").get(0).trim().lowercase()
                         commonWords.add(word)
                         count++
-                    } else {
-                        return@forEach
                     }
                 }
             }
@@ -45,5 +47,9 @@ object StrangeWordConfig {
             return true
         }
         return false
+    }
+
+    fun getFreq(word: String): Int? {
+        return wordsFreq.get(word.lowercase())
     }
 }
