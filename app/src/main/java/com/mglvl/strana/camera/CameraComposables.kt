@@ -51,7 +51,6 @@ import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -66,11 +65,6 @@ import com.mglvl.strana.viewmodel.SavedWordsViewModel
 import edu.stanford.nlp.pipeline.StanfordCoreNLP
 import java.util.Properties
 import kotlinx.coroutines.launch
-import org.apache.lucene.analysis.hunspell.Dictionary
-import org.apache.lucene.analysis.hunspell.Hunspell
-import org.apache.lucene.store.Directory
-import org.apache.lucene.store.FSDirectory
-import java.io.File
 
 @Composable
 fun CameraScreen(
@@ -195,6 +189,9 @@ fun CameraPreview(
     // Create the text recognizer
     val recognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
+    // Get the SpellChecker instance
+    val spellChecker = remember { SpellChecker.getInstance(context) }
+
     // State to track if scanning is in progress
     var isScanning by remember { mutableStateOf(false) }
 
@@ -203,9 +200,6 @@ fun CameraPreview(
 
     // State to indicate text recognition is in progress
     var isRecognizingText by remember { mutableStateOf(false) }
-
-    // State to hold container size for scaling calculations
-    var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     // State to hold the recognized words with their bounding boxes
     var wordsWithBounds by remember { mutableStateOf<List<Word>>(emptyList()) }
@@ -216,28 +210,6 @@ fun CameraPreview(
     // State to track the scaling factor applied to the original image
     var inputImageWidth by remember { mutableStateOf(1f) }
     var inputImageHeight by remember { mutableStateOf(1f) }
-
-    // Initialize Hunspell for spell checking
-    val hunspell = remember {
-        try {
-            // Create temporary files for the dictionary and affix files
-            val tempDirFile = File(context.cacheDir, "hunspell_temp")
-            if (!tempDirFile.exists()) {
-                tempDirFile.mkdirs()
-            }
-            val tempDir: Directory = FSDirectory.open(tempDirFile.toPath())
-
-            val dictionary = Dictionary(
-                tempDir, "hunspell_", context.assets.open("en_US.aff"),
-                context.assets.open("en_US.dic")
-            )
-            // Create Hunspell instance
-            Hunspell(dictionary)
-        } catch (e: Exception) {
-            Log.e("Hunspell", "Error initializing Hunspell", e)
-            throw e
-        }
-    }
 
     val props = Properties()
     props.setProperty("annotators", "tokenize,pos")
@@ -393,45 +365,25 @@ fun CameraPreview(
                                                             pipeline.processToCoreDocument(result.text)
                                                         val words = document.tokens().map { token ->
                                                             // Create Word objects with bounds from the map
-
                                                             val tokenWord = token.word()
 
-                                                            // Spell check word using Hunspell
-                                                            val isCorrect =
-                                                                hunspell.spell(tokenWord)
-                                                            val suggestions =
-                                                                if (!isCorrect && tokenWord.length > 1) {
-                                                                    hunspell.suggest(tokenWord)
-                                                                        .toList()
-                                                                } else {
-                                                                    emptyList()
-                                                                }
-                                                            Log.d(
-                                                                "overriddenWord",
-                                                                "word: ${tokenWord}, suggestions: ${suggestions}"
-                                                            )
-                                                            val overriddenWord =
-                                                                if (suggestions.isNotEmpty())
-                                                                    suggestions.maxBy { w ->
-                                                                        StrangeWordConfig.getFreq(w)
-                                                                            ?: 0
-                                                                    }
-                                                                else null
-
-                                                            val bounds = wordBoundsMap[tokenWord]
+                                                            // Use the SpellChecker to check spelling and get suggestions
+                                                            val spellCheckResult = spellChecker.checkSpelling(tokenWord)
 
                                                             Log.d(
                                                                 "WordMapping",
-                                                                "Token: '$tokenWord', bounds: $bounds, isCorrect: $isCorrect, suggestions: $suggestions"
+                                                                "Token: '$tokenWord', bounds: ${wordBoundsMap[tokenWord]}, " +
+                                                                "isCorrect: ${spellCheckResult.isCorrect}, " +
+                                                                "suggestions: ${spellCheckResult.suggestions}"
                                                             )
 
                                                             Word(
                                                                 word = tokenWord,
-                                                                spellcheckedWord = overriddenWord,
+                                                                spellcheckedWord = spellCheckResult.bestSuggestion,
                                                                 posTag = token.tag(),
-                                                                bounds = bounds,
-                                                                isSpelledCorrectly = isCorrect,
-                                                                suggestions = suggestions
+                                                                bounds = wordBoundsMap[tokenWord],
+                                                                isSpelledCorrectly = spellCheckResult.isCorrect,
+                                                                suggestions = spellCheckResult.suggestions
                                                             )
                                                         }.filter { w: Word ->
                                                             !setOf(
