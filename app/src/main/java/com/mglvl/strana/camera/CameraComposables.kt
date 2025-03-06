@@ -48,8 +48,6 @@ import com.mglvl.strana.dictionary.DictionaryApiClient
 import com.mglvl.strana.dictionary.WordDefinition
 import com.mglvl.strana.ui.composables.WordsAndDefinitionsArea
 import com.mglvl.strana.viewmodel.SavedWordsViewModel
-import edu.stanford.nlp.pipeline.StanfordCoreNLP
-import java.util.Properties
 import kotlinx.coroutines.launch
 
 @Composable
@@ -174,9 +172,9 @@ fun CameraPreview(
 
     // Create the text recognizer
     val recognizer = remember { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
-
-    // Get the SpellChecker instance
-    val spellChecker = remember { SpellChecker.getInstance(context) }
+    
+    // Create the word processor
+    val wordProcessor = remember { WordProcessor(context) }
 
     // State to track if scanning is in progress
     var isScanning by remember { mutableStateOf(false) }
@@ -196,10 +194,6 @@ fun CameraPreview(
     // State to track the scaling factor applied to the original image
     var inputImageWidth by remember { mutableStateOf(1f) }
     var inputImageHeight by remember { mutableStateOf(1f) }
-
-    val props = Properties()
-    props.setProperty("annotators", "tokenize,pos")
-    val pipeline = StanfordCoreNLP(props)
 
     // Update camera state whenever capturedBitmap changes
     onCameraStateChanged(capturedBitmap == null)
@@ -326,71 +320,9 @@ fun CameraPreview(
 
                                                 recognizer.process(inputImage)
                                                     .addOnSuccessListener { result ->
-                                                        // Create a map to store word to bounding box mapping
-                                                        val wordBoundsMap =
-                                                            mutableMapOf<String, android.graphics.Rect>()
-
-                                                        // Extract text blocks, lines, and elements with their bounding boxes
-                                                        for (block in result.textBlocks) {
-                                                            for (line in block.lines) {
-                                                                for (element in line.elements) {
-
-                                                                    element.boundingBox?.let { bounds ->
-                                                                        Log.d(
-                                                                            "TextRecognition",
-                                                                            "Found element: '${element.text}' with bounds: $bounds"
-                                                                        )
-                                                                        wordBoundsMap[element.text] =
-                                                                            bounds
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-
-                                                        val document =
-                                                            pipeline.processToCoreDocument(result.text)
-                                                        val words = document.tokens().map { token ->
-                                                            // Create Word objects with bounds from the map
-                                                            val tokenWord = token.word()
-
-                                                            // Use the SpellChecker to check spelling and get suggestions
-                                                            val spellCheckResult = spellChecker.checkSpelling(tokenWord)
-
-                                                            Log.d(
-                                                                "WordMapping",
-                                                                "Token: '$tokenWord', bounds: ${wordBoundsMap[tokenWord]}, " +
-                                                                "isCorrect: ${spellCheckResult.isCorrect}, " +
-                                                                "suggestions: ${spellCheckResult.suggestions}"
-                                                            )
-
-                                                            Word(
-                                                                word = tokenWord,
-                                                                spellcheckedWord = spellCheckResult.bestSuggestion,
-                                                                posTag = token.tag(),
-                                                                bounds = wordBoundsMap[tokenWord],
-                                                                isSpelledCorrectly = spellCheckResult.isCorrect,
-                                                                suggestions = spellCheckResult.suggestions
-                                                            )
-                                                        }.filter { w: Word ->
-                                                            !setOf(
-                                                                "NNP",
-                                                                "NNPS",
-                                                                ",",
-                                                                ".",
-                                                                "HYPH",
-                                                                "``",
-                                                                "''",
-                                                                ":",
-                                                                "RRB-",
-                                                                "LRB-"
-                                                            ).contains(w.posTag)
-                                                        }
-                                                            .filter { w: Word ->
-                                                                w.word.length > 2 && !w.word.contains(
-                                                                    Regex("[0-9]")
-                                                                )
-                                                            }
-
+                                                        // Process the text recognition result using WordProcessor
+                                                        val words = wordProcessor.processTextRecognitionResult(result)
+                                                        
                                                         if (words.isNotEmpty()) {
                                                             // Store words with bounds
                                                             wordsWithBounds = words
@@ -410,20 +342,8 @@ fun CameraPreview(
                                                                 savedWordsStatus = savedStatus
                                                             }
 
-                                                            // Log summary of words with bounds
-                                                            val wordsWithValidBounds =
-                                                                words.count { it.bounds != null }
-                                                            Log.d(
-                                                                "WordsWithBounds",
-                                                                "Total words: ${words.size}, Words with bounds: $wordsWithValidBounds"
-                                                            )
-                                                        }
-
-                                                        words.forEach { w ->
-                                                            Log.d(
-                                                                "CameraActivity",
-                                                                "word : '${w.word}', bounds: ${w.bounds}"
-                                                            )
+                                                            // Log summary of words
+                                                            wordProcessor.logWordsSummary(words)
                                                         }
 
                                                         // Text recognition is complete
